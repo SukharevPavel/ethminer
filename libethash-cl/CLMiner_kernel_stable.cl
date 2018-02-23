@@ -124,6 +124,55 @@ static void chi(uint2 * a, const uint n, const uint2 * t)
 	a[n+4] = bitselect(t[n + 4] ^ t[n + 1], t[n + 4], t[n + 0]);
 }
 
+static void keccak_f1600_round_no_theta(uint2* a, uint r) {
+	uint2 t[25];
+	uint2 u;
+	
+
+    // Rho Pi
+
+	t[0]  = a[0];
+	t[10] = ROL2(a[1], 1);
+	t[20] = ROL2(a[2], 62);
+	t[5]  = ROL2(a[3], 28);
+	t[15] = ROL2(a[4], 27);
+	
+	t[16] = ROL2(a[5], 36);
+	t[1]  = ROL2(a[6], 44);
+	t[11] = ROL2(a[7], 6);
+	t[21] = ROL2(a[8], 55);
+	t[6]  = ROL2(a[9], 20);
+	
+	t[7]  = ROL2(a[10], 3);
+	t[17] = ROL2(a[11], 10);
+	t[2]  = ROL2(a[12], 43);
+	t[12] = ROL2(a[13], 25);
+	t[22] = ROL2(a[14], 39);
+	
+	t[23] = ROL2(a[15], 41);
+	t[8]  = ROL2(a[16], 45);
+	t[18] = ROL2(a[17], 15);
+	t[3]  = ROL2(a[18], 21);
+	t[13] = ROL2(a[19], 8);
+	
+	t[14] = ROL2(a[20], 18);
+	t[24] = ROL2(a[21], 2);
+	t[9]  = ROL2(a[22], 61);
+	t[19] = ROL2(a[23], 56);
+	t[4]  = ROL2(a[24], 14);
+
+	// Chi
+	chi(a, 0, t);
+
+	// Iota
+	a[0] ^= Keccak_f1600_RC[r];
+
+	chi(a, 5, t);
+	chi(a, 10, t);
+	chi(a, 15, t);
+	chi(a, 20, t);
+}
+
 static void keccak_f1600_round(uint2* a, uint r)
 {
 	uint2 t[25];
@@ -210,6 +259,35 @@ static void keccak_f1600_round(uint2* a, uint r)
 	chi(a, 20, t);
 }
 
+static void keccak_f1600_no_absorb_init_state(uint2* a, uint out_size, uint isolate)
+{
+	// Originally I unrolled the first and last rounds to interface
+	// better with surrounding code, however I haven't done this
+	// without causing the AMD compiler to blow up the VGPR usage.
+
+	keccak_f1600_round_no_theta(a, 0);
+	//uint o = 25;
+	for (uint r = 1; r < 24;)
+	{
+		// This dynamic branch stops the AMD compiler unrolling the loop
+		// and additionally saves about 33% of the VGPRs, enough to gain another
+		// wavefront. Ideally we'd get 4 in flight, but 3 is the best I can
+		// massage out of the compiler. It doesn't really seem to matter how
+		// much we try and help the compiler save VGPRs because it seems to throw
+		// that information away, hence the implementation of keccak here
+		// doesn't bother.
+		if (isolate)
+		{
+			keccak_f1600_round(a, r++);
+			//if (r == 23) o = out_size;
+		}
+	} 
+	
+
+	// final round optimised for digest size
+	//keccak_f1600_round(a, 23, out_size);
+}
+
 static void keccak_f1600_no_absorb(uint2* a, uint out_size, uint isolate)
 {
 	// Originally I unrolled the first and last rounds to interface
@@ -289,11 +367,13 @@ __attribute__((reqd_work_group_size(GROUP_SIZE, 1, 1)))
 #endif
 __kernel void ethash_search(
 	__global volatile uint* restrict g_output,
-	__constant hash32_t const* g_header,
+	__constant hash32_t const* preState,
 	__global hash128_t const* g_dag,
 	ulong start_nonce,
 	ulong target,
-	uint isolate
+	uint isolate,
+	ulong header_part,
+	ulong header_part2
 	)
 {
 	__local compute_hash_share share[HASHES_PER_LOOP];
@@ -304,17 +384,21 @@ __kernel void ethash_search(
 
 	// sha3_512(header .. nonce)
 	ulong state[25];
-	copy(state, g_header->ulongs, 4);
-	state[4] = start_nonce + gid;
-
-	for (uint i = 6; i != 25; ++i)
-	{
-		state[i] = 0;
-	}
-	state[5] = 0x0000000000000001;
-	state[8] = 0x8000000000000000;
-
-	keccak_f1600_no_absorb((uint2*)state, 8, isolate);
+	copy(state, preState->ulongs, 25);
+	ulong u = (start_nonce + gid) ^ ((ulong)ROL2(header_part, 1));
+	state[0] ^= u;
+	state[5] ^= u;
+	state[10] ^= u;
+	state[15] ^= u;
+	state[20] ^= u;
+	
+	u = header_part2 ^ ((ulong)ROL2(start_nonce + gid, 1));
+	state[3] ^= u;
+	state[8] ^= u;
+	state[13] ^= u;
+	state[18] ^= u;
+	state[23] ^= u;
+	keccak_f1600_no_absorb_init_state((uint2*)state, 8, isolate);
 	
 	// Threads work together in this phase in groups of 8.
 	uint const thread_id = gid & 7;

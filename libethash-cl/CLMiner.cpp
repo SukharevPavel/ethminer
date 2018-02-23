@@ -319,12 +319,57 @@ void CLMiner::workLoop()
 				const uint64_t target = (uint64_t)(u64)((u256)w.boundary >> 192);
 				assert(target > 0);
 
-				// Update header constant buffer.
-				m_queue.enqueueWriteBuffer(m_header, CL_FALSE, 0, w.header.size, w.header.data());
+				ulong state[25];
+				state[0] = (uint64_t)(u64)((u256)w.header >> 192);
+				state[1] = (uint64_t)(u64)((u256)w.header >> 128);
+				state[2] = (uint64_t)(u64)((u256)w.header >> 64);
+				state[3] = (uint64_t)(u64)((u256)w.header >> 0);
+				state[5] = 0x0000000000000001UL;
+				state[6] = 0;
+				state[7] = 0;
+				state[8] = 0x8000000000000000UL;
+				for (int i=9; i<25; i++) {
+					state[i] = 0;
+				}
+				
+				ulong t[4];
+				ulong u;
+				ulong header_part = state[1];
+				ulong header_part2 = state[2];
+				
+				// Theta
+				t[0] = state[0] ^ state[5] ^ state[10] ^ state[15] ^ state[20];
+				t[1] = state[1] ^ state[6] ^ state[11] ^ state[16] ^ state[21];
+				t[2] = state[2] ^ state[7] ^ state[12] ^ state[17] ^ state[22];
+				t[3] = state[3] ^ state[8] ^ state[13] ^ state[18] ^ state[23];
+				u = t[0] ^ rotateLeft(t[2], 1);
+				state[1] ^= u;
+				state[6] ^= u;
+				state[11] ^= u;
+				state[16] ^= u;
+				state[21] ^= u;
+				u = t[1] ^ rotateLeft(t[3], 1);
+				state[2] ^= u;
+				state[7] ^= u;
+				state[12] ^= u;
+				state[17] ^= u;
+				state[22] ^= u;
+				u = t[3] ^ rotateLeft(t[0], 1);
+				state[4] ^= u;
+				state[9] ^= u;
+				state[14] ^= u;
+				state[19] ^= u;
+				state[24] ^= u;
+				
+
+				// Update header constant buffer.				
+				m_queue.enqueueWriteBuffer(m_header, CL_FALSE, 0, 200, state);
 				m_queue.enqueueWriteBuffer(m_searchBuffer, CL_FALSE, 0, sizeof(c_zero), &c_zero);
 
 				m_searchKernel.setArg(0, m_searchBuffer);  // Supply output buffer to kernel.
 				m_searchKernel.setArg(4, target);
+				m_searchKernel.setArg(6, header_part);
+				m_searchKernel.setArg(7, header_part2);
 
 				// FIXME: This logic should be move out of here.
 				if (w.exSizeBits >= 0)
@@ -673,7 +718,9 @@ bool CLMiner::init(const h256& seed)
 		}
 		// create buffer for header
 		ETHCL_LOG("Creating buffer for header.");
-		m_header = cl::Buffer(m_context, CL_MEM_READ_ONLY, 32);
+		m_header = cl::Buffer(m_context, CL_MEM_READ_ONLY, 200);
+		
+
 
 		m_searchKernel.setArg(1, m_header);
 		m_searchKernel.setArg(2, m_dag);
