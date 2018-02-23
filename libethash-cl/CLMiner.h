@@ -39,6 +39,9 @@ namespace eth
 enum CLKernelName {
 	Stable,
 	Experimental,
+	EthashNew,
+	EthashGenoil,
+	EthashOld
 };
 
 class CLMiner: public Miner
@@ -76,7 +79,25 @@ public:
 			s_devices[i] = _devices[i];
 		}
 	}
-	static void setCLKernel(unsigned _clKernel) { s_clKernelName = _clKernel == 1 ? CLKernelName::Experimental : CLKernelName::Stable; }
+	static void setCLKernel(unsigned _clKernel) { 
+		switch (_clKernel) {
+			case 1:
+				s_clKernelName = CLKernelName::Experimental;
+				break;
+			case 2:
+				s_clKernelName = CLKernelName::EthashNew;
+				break;
+			case 3:
+				s_clKernelName = CLKernelName::EthashGenoil;
+				break;
+			case 4:
+				s_clKernelName = CLKernelName::EthashOld;
+				break;
+			default:
+				s_clKernelName = CLKernelName::Stable;
+				break;
+		}
+	}
 protected:
 	void kick_miner() override;
 
