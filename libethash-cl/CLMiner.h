@@ -69,6 +69,14 @@ public:
 	);
 	static void setNumInstances(unsigned _instances) { s_numInstances = std::min<unsigned>(_instances, getNumDevices()); }
 	static void setThreadsPerHash(unsigned _threadsPerHash){s_threadsPerHash = _threadsPerHash; }
+	static inline uint64_t rotateLeft(uint64_t x, unsigned int n)
+{
+	const unsigned int mask = (8*sizeof(x) - 1);  // assumes width is a power of 2.
+
+	// assert ( (c<=mask) &&"rotate by type width or more");
+	n &= mask;
+	return (x << n) | (x >> ((-n)&mask));
+}
 	static void setDevices(const vector<unsigned>& _devices, unsigned _selectedDeviceCount)
 	{
 		for (unsigned i = 0; i < _selectedDeviceCount; i++)
