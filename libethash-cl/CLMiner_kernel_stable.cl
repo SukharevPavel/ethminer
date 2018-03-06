@@ -329,15 +329,10 @@ __kernel void ethash_search(
 		barrier(CLK_LOCAL_MEM_FENCE);
 
 		uint4 mix = share[hash_id].uint4s[thread_id & 3];
-		barrier(CLK_LOCAL_MEM_FENCE);
-
 		__local uint *share0 = share[hash_id].uints;
-
-		// share init0
-		if (thread_id == 0)
-			*share0 = mix.x;
 		barrier(CLK_LOCAL_MEM_FENCE);
-		uint init0 = *share0;
+
+		uint init0 = share[hash_id].uints[0];
 
 		for (uint a = 0; a < ACCESSES; a += 4)
 		{
