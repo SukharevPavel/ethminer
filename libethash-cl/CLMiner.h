@@ -8,6 +8,7 @@
 #include <libdevcore/Worker.h>
 #include <libethcore/EthashAux.h>
 #include <libethcore/Miner.h>
+#include <chrono>
 
 #define CL_USE_DEPRECATED_OPENCL_1_2_APIS true
 #define CL_HPP_ENABLE_EXCEPTIONS true
@@ -30,6 +31,7 @@
 #define OPENCL_PLATFORM_AMD     2
 #define OPENCL_PLATFORM_CLOVER  3
 
+using namespace std::chrono;
 
 namespace dev
 {
@@ -41,7 +43,8 @@ enum CLKernelName {
 	Experimental,
 	EthashNew,
 	EthashGenoil,
-	EthashOld
+	EthashOld,
+	Basic
 };
 
 class CLMiner: public Miner
@@ -93,6 +96,9 @@ public:
 			case 4:
 				s_clKernelName = CLKernelName::EthashOld;
 				break;
+			case 5:
+				s_clKernelName = CLKernelName::Basic;
+				break;
 			default:
 				s_clKernelName = CLKernelName::Stable;
 				break;
@@ -103,6 +109,33 @@ protected:
 
 private:
 	void workLoop() override;
+    milliseconds initMs;
+    unsigned long hashCount;
+    unsigned long lostHashCount;
+	unsigned long openclCycleCount = 0;
+    bool wasInvalidHeader = false;
+
+    void initCounter(){
+        initMs = duration_cast< milliseconds >(
+                    system_clock::now().time_since_epoch());
+        hashCount = 0;
+        lostHashCount = 0;
+		openclCycleCount = 0;
+    }
+
+    int checkTime(){
+        milliseconds curMs = duration_cast< milliseconds >(
+                    system_clock::now().time_since_epoch());
+		int time = curMs.count() - initMs.count();
+		return time;
+    }
+	
+	/*void printMillis(int num){
+		milliseconds ms = duration_cast< milliseconds >(
+			system_clock::now().time_since_epoch());
+		printf("on line %d for %lu ms\n", num, ms - lastMs);
+		lastMs = ms;
+	};*/
 
 	bool init(const h256& seed);
 

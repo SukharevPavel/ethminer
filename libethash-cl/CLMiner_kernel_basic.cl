@@ -278,11 +278,16 @@ typedef struct
 	uint4 uint4s[128 / sizeof(uint4)];
 } hash128_t;
 
+
 typedef union {
-	uint4 uint4s[4];
-	ulong ulongs[8];
-	uint  uints[16];
-} compute_hash_share;
+	uint uints[32];
+	uint4 uint4s[8];
+} type_mix;
+
+typedef union {
+	ulong ulongs[25];
+	uint uints[50];
+} type_state;
 
 #if PLATFORM != OPENCL_PLATFORM_NVIDIA // use maxrregs on nv
 __attribute__((reqd_work_group_size(GROUP_SIZE, 1, 1)))
@@ -290,97 +295,102 @@ __attribute__((reqd_work_group_size(GROUP_SIZE, 1, 1)))
 __kernel void ethash_search(
 	__global volatile uint* restrict g_output,
 	__constant hash32_t const* g_header,
-	__global hash128_t const* g_dag,
+	__global uint const* g_dag,
 	ulong start_nonce,
 	ulong target,
 	uint isolate
 	)
 {
-	__local compute_hash_share share[HASHES_PER_LOOP];
 
 	uint const gid = get_global_id(0);
 
 	// Compute one init hash per work item.
 
 	// sha3_512(header .. nonce)
-	ulong state[25];
-	copy(state, g_header->ulongs, 4);
-	state[4] = start_nonce + gid;
+	type_state state;
+	copy(state.ulongs, g_header->ulongs, 4);
+	/*state.ulongs[0] = 0x0807060504030201;
+	state.ulongs[1] = 0x100F0E0D0C0B0A09;
+	state.ulongs[2] = 0x1817161514131211;
+	state.ulongs[3] = 0x201F1E1D1C1B1A19;
+	state.ulongs[4] = 0x0102030405060708;*/
+	state.ulongs[4] = start_nonce + gid;
 
 	for (uint i = 6; i != 25; ++i)
 	{
-		state[i] = 0;
+		state.ulongs[i] = 0;
 	}
-	state[5] = 0x0000000000000001;
-	state[8] = 0x8000000000000000;
+	state.ulongs[5] = 0x0000000000000001;
+	state.ulongs[8] = 0x8000000000000000;
 
-	keccak_f1600_no_absorb((uint2*)state, 8, isolate);
+
+	keccak_f1600_no_absorb((uint2*)state.ulongs, 8, isolate);
 	
-	// Threads work together in this phase in groups of 8.
-	uint const thread_id = gid & 7;
-	uint const hash_id = (gid % GROUP_SIZE) >> 3;
-
-	for (int i = 0; i < THREADS_PER_HASH; i++)
-	{
-		// share init with other threads
-		if (i == thread_id)
-			copy(share[hash_id].ulongs, state, 8);
-
-		barrier(CLK_LOCAL_MEM_FENCE);
-
-		uint4 mix = share[hash_id].uint4s[thread_id & 3];
-		__local uint *share0 = share[hash_id].uints;
-		barrier(CLK_LOCAL_MEM_FENCE);
-
-		
-
-		// share init0
-		//if (thread_id == 0)
-	//		*share0 = mix.x;
-	//	barrier(CLK_LOCAL_MEM_FENCE);
-		uint init0 = *share0;
-
-		for (uint a = 0; a < ACCESSES; a += 4)
-		{
-			bool update_share = thread_id == ((a >> 2) & (THREADS_PER_HASH - 1));
-
-			for (uint i = 0; i != 4; ++i)
-			{
-				if (update_share)
-				{
-					*share0 = fnv(init0 ^ (a + i), ((uint *)&mix)[i]) % DAG_SIZE;
-				}
-				barrier(CLK_LOCAL_MEM_FENCE);
-
-				mix = fnv4(mix, g_dag[*share0].uint4s[thread_id]);
-			}
-		}
-
-		share[hash_id].uints[thread_id] = fnv_reduce(mix);
-		barrier(CLK_LOCAL_MEM_FENCE);
-
-		if (i == thread_id)
-			copy(state + 8, share[hash_id].ulongs, 4);
-
-		barrier(CLK_LOCAL_MEM_FENCE);
+	type_mix mix;
+	for (int i=0; i<16; i++) {
+		mix.uints[i] = state.uints[i];
+		mix.uints[i+16] = state.uints[i];
 	}
 
+
+	
+	for (int i=0; i < ACCESSES; i++) {
+		uint p = fnv(state.uints[0] ^ i, mix.uints[i % 32]) % DAG_SIZE;
+		uint offset = p * 2;
+		uint newData[32];
+		
+		 for (int j = 0; j < 2; j++) {
+                uint itemIdx = offset + j;
+				for (int j1=0;j1<16;j1++){
+					//newData[j*16+j1] = itemIdx * 16 + j1;
+					newData[j*16+j1] = g_dag[itemIdx * 16 + j1];
+				}
+				//copy(newData, g_dag + itemIdx * 16, 16);
+            }
+			
+			
+			
+		for (int i1 = 0; i1 < 32; i1++) {
+			mix.uints[i1] = fnv(mix.uints[i1], newData[i1]);
+		}
+	}
+	
+	
+	
+	int cmix[8];
+        for (int i = 0; i < 32; i += 4) {
+            uint fnv1 = fnv(mix.uints[i], mix.uints[i + 1]);
+            uint fnv2 = fnv(fnv1, mix.uints[i + 2]);
+            uint fnv3 = fnv(fnv2, mix.uints[i + 3]);
+            cmix[i >> 2] = fnv3;
+        }
+	copy(state.uints + 16, cmix, 8)
 	for (uint i = 13; i != 25; ++i)
 	{
-		state[i] = 0;
+		state.ulongs[i] = 0;
 	}
-	state[12] = 0x0000000000000001;
-	state[16] = 0x8000000000000000;
-
+	state.ulongs[12] = 0x0000000000000001;
+	state.ulongs[16] = 0x8000000000000000;
+	/*if (get_global_id(0) == 0) {
+				int inner;
+				for (inner = 0; inner < 50; inner++)
+					{
+						if (inner > 0) printf(":");
+						printf("%d", state.uints[inner]);
+					}
+				printf("\n");
+				}*/
 	// keccak_256(keccak_512(header..nonce) .. mix);
-	keccak_f1600_no_absorb((uint2*)state, 1, isolate);
+	keccak_f1600_no_absorb((uint2*)state.ulongs, 1, isolate);
 
-	if (as_ulong(as_uchar8(state[0]).s76543210) < target)
+	if (as_ulong(as_uchar8(state.ulongs[0]).s76543210) < target)
 	{		
 		uint slot = min(MAX_OUTPUTS, atomic_inc(&g_output[0]) + 1);
 		g_output[slot] = gid;
 	}
+	
 }
+
 
 static void SHA3_512(uint2* s, uint isolate)
 {

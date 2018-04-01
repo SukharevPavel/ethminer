@@ -10,6 +10,8 @@
 #include "CLMiner_kernel_ethash_new.h"
 #include "CLMiner_kernel_ethash_genoil.h"
 #include "CLMiner_kernel_ethash_old.h"
+#include "CLMiner_kernel_basic.h"
+
 
 using namespace dev;
 using namespace eth;
@@ -282,6 +284,11 @@ void CLMiner::workLoop()
 	uint32_t const c_zero = 0;
 
 	uint64_t startNonce = 0;
+	
+	float meanTime = 0;
+	int count = 0;
+	bool isFirst = true;
+
 
 	// The work package currently processed by GPU.
 	WorkPackage current;
@@ -292,9 +299,8 @@ void CLMiner::workLoop()
 		while (true)
 		{
 			const WorkPackage w = work();
-
 			if (current.header != w.header)
-			{
+			{	
 				// New work received. Update GPU data.
 				if (!w)
 				{
@@ -314,7 +320,6 @@ void CLMiner::workLoop()
 						++s_dagLoadIndex;
 					}
 
-					cllog << "New seed" << w.seed;
 					init(w.seed);
 				}
 
@@ -325,6 +330,8 @@ void CLMiner::workLoop()
 				// Update header constant buffer.
 				m_queue.enqueueWriteBuffer(m_header, CL_FALSE, 0, w.header.size, w.header.data());
 				m_queue.enqueueWriteBuffer(m_searchBuffer, CL_FALSE, 0, sizeof(c_zero), &c_zero);
+
+				wasInvalidHeader = true;
 
 				m_searchKernel.setArg(0, m_searchBuffer);  // Supply output buffer to kernel.
 				m_searchKernel.setArg(4, target);
@@ -342,12 +349,22 @@ void CLMiner::workLoop()
 					<< std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::high_resolution_clock::now() - workSwitchStart).count()
 					<< "ms.";
 			}
-
 			// Read results.
 			// TODO: could use pinned host pointer instead.
 			uint32_t results[c_maxSearchResults + 1];
 			m_queue.enqueueReadBuffer(m_searchBuffer, CL_TRUE, 0, sizeof(results), &results);
-
+            if (checkTime() < 300000) {
+				openclCycleCount++;
+				if (wasInvalidHeader) {
+					wasInvalidHeader = false;
+					lostHashCount += m_globalWorkSize;
+				} else {
+					hashCount += m_globalWorkSize;
+				//	cllog<<"increment " << hashCount;
+				}
+			} else {
+				 cllog<<"benchmark finish; valid hashes = " << hashCount << "; invalid hashes = " << lostHashCount<<"; cycles = "<< openclCycleCount;
+			}
 			uint64_t nonce = 0;
 			if (results[0] > 0)
 			{
@@ -356,22 +373,44 @@ void CLMiner::workLoop()
 				// Reset search buffer if any solution found.
 				m_queue.enqueueWriteBuffer(m_searchBuffer, CL_FALSE, 0, sizeof(c_zero), &c_zero);
 			}
-
 			// Run the kernel.
 			m_searchKernel.setArg(3, startNonce);
+			
+			cl::Event event;
+			
+			if (true) {
 			m_queue.enqueueNDRangeKernel(m_searchKernel, cl::NullRange, m_globalWorkSize, m_workgroupSize);
+			isFirst = false;
+			}
+            /*m_queue.enqueueNDRangeKernel(m_searchKernel, cl::NullRange, m_globalWorkSize, m_workgroupSize, NULL, &event);
+
+            event.wait();
+
+            cl_ulong time_start;
+            cl_ulong time_end;
+
+            event.getProfilingInfo(CL_PROFILING_COMMAND_START, &time_start);
+            event.getProfilingInfo(CL_PROFILING_COMMAND_END, &time_end);
+
+            float milSeconds = (time_end-time_start) / 1000000.0;
+            meanTime = (count * meanTime + milSeconds) / (++count);
+            printf("OpenCl mean Execution time is: %0.3f milliseconds \n", meanTime);*/
+
 
 			// Report results while the kernel is running.
 			// It takes some time because ethash must be re-evaluated on CPU.
 			if (nonce != 0) {
 				Result r = EthashAux::eval(current.seed, current.header, nonce);
-				if (r.value < current.boundary)
-					farm.submitProof(Solution{nonce, r.mixHash, current, current.header != w.header});
+                if (r.value < current.boundary) {
+                    farm.submitProof(Solution{nonce, r.mixHash, current, current.header != w.header});
+                }
 				else {
 					farm.failedSolution();
 					cwarn << "FAILURE: GPU gave incorrect result!";
 				}
 			}
+
+            
 
 			current = w;        // kernel now processing newest work
 			current.startNonce = startNonce;
@@ -380,7 +419,6 @@ void CLMiner::workLoop()
 
 			// Report hash count
 			addHashCount(m_globalWorkSize);
-
 			// Check if we should stop.
 			if (shouldStop())
 			{
@@ -483,6 +521,11 @@ bool CLMiner::configureGPU(
 	vector<cl::Device> devices = getDevices(platforms, _platformId);
 	for (auto const& device: devices)
 	{
+		cl_ulong deviceData = 0;
+		device.getInfo(CL_DEVICE_MAX_WORK_GROUP_SIZE, &deviceData);
+		printf("MAX_WORKGROUP_SIZE = %lu\n", deviceData);
+		device.getInfo(CL_DEVICE_MAX_COMPUTE_UNITS, &deviceData);
+		printf("CL_DEVICE_MAX_COMPUTE_UNITS = %lu\n", deviceData);
 		cl_ulong result = 0;
 		device.getInfo(CL_DEVICE_GLOBAL_MEM_SIZE, &result);
 		if (result >= dagSize)
@@ -588,7 +631,7 @@ bool CLMiner::init(const h256& seed)
 		}
 		// create context
 		m_context = cl::Context(vector<cl::Device>(&device, &device + 1));
-		m_queue = cl::CommandQueue(m_context, device);
+		m_queue = cl::CommandQueue(m_context, device, CL_QUEUE_PROFILING_ENABLE);
 
 		// make sure that global work size is evenly divisible by the local workgroup size
 		m_workgroupSize = s_workgroupSize;
@@ -625,6 +668,10 @@ bool CLMiner::init(const h256& seed)
 			case CLKernelName::Experimental:
 				cllog << "OpenCL kernel: Experimental kernel";
 				code = string(CLMiner_kernel_experimental, CLMiner_kernel_experimental + sizeof(CLMiner_kernel_experimental));
+				break;
+			case CLKernelName::Basic:
+				cllog << "OpenCL kernel: Basic kernel";
+				code = string(CLMiner_kernel_basic, CLMiner_kernel_basic + sizeof(CLMiner_kernel_basic));
 				break;
 			default:
 				//if(s_clKernelName == CLKernelName::Stable)
@@ -725,6 +772,7 @@ bool CLMiner::init(const h256& seed)
 		auto dagTime = std::chrono::duration_cast<std::chrono::milliseconds>(endDAG-startDAG);
 		float gb = (float)dagSize / (1024 * 1024 * 1024);
 		cnote << gb << " GB of DAG data generated in" << dagTime.count() << "ms.";
+		initCounter();
 	}
 	catch (cl::Error const& err)
 	{

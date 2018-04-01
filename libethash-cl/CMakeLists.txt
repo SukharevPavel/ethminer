@@ -63,6 +63,18 @@ add_custom_command(
 )
 add_custom_target(clbin2h_ethash_old DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/CLMiner_kernel_ethash_old.h ${CMAKE_CURRENT_SOURCE_DIR}/ethash-old.cl)
 
+add_custom_command(
+	OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/CLMiner_kernel_basic.h
+	COMMAND ${CMAKE_COMMAND} ARGS
+	-DBIN2H_SOURCE_FILE="${CMAKE_CURRENT_SOURCE_DIR}/CLMiner_kernel_basic.cl"
+	-DBIN2H_VARIABLE_NAME=CLMiner_kernel_basic
+	-DBIN2H_HEADER_FILE="${CMAKE_CURRENT_BINARY_DIR}/CLMiner_kernel_basic.h"
+	-P "${CMAKE_CURRENT_SOURCE_DIR}/bin2h.cmake"
+	COMMENT "Generating OpenCL Kernel Byte Array"
+	DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/CLMiner_kernel_basic.cl
+)
+add_custom_target(clbin2h_basic DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/CLMiner_kernel_basic.h ${CMAKE_CURRENT_SOURCE_DIR}/CLMiner_kernel_basic.cl)
+
 set(SOURCES
 	CLMiner.h CLMiner.cpp
 	${CMAKE_CURRENT_BINARY_DIR}/CLMiner_kernel_stable.h
@@ -70,7 +82,7 @@ set(SOURCES
 	${CMAKE_CURRENT_BINARY_DIR}/CLMiner_kernel_ethash_new.h
 	${CMAKE_CURRENT_BINARY_DIR}/CLMiner_kernel_ethash_genoil.h
 	${CMAKE_CURRENT_BINARY_DIR}/CLMiner_kernel_ethash_old.h
-
+	${CMAKE_CURRENT_BINARY_DIR}/CLMiner_kernel_basic.h
 )
 
 if(APPLE)
