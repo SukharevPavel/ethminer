@@ -112,8 +112,10 @@ private:
     milliseconds initMs;
     unsigned long hashCount;
     unsigned long lostHashCount;
+	unsigned long changeBlockCount;
 	unsigned long openclCycleCount = 0;
     bool wasInvalidHeader = false;
+	int curTime;
 
     void initCounter(){
         initMs = duration_cast< milliseconds >(
@@ -121,14 +123,19 @@ private:
         hashCount = 0;
         lostHashCount = 0;
 		openclCycleCount = 0;
+		changeBlockCount = 0;
     }
 
     int checkTime(){
         milliseconds curMs = duration_cast< milliseconds >(
                     system_clock::now().time_since_epoch());
-		int time = curMs.count() - initMs.count();
-		return time;
+		curTime = curMs.count() - initMs.count();
+		return curTime;
     }
+	
+	int getTime(){
+		return curTime;
+	}
 	
 	/*void printMillis(int num){
 		milliseconds ms = duration_cast< milliseconds >(

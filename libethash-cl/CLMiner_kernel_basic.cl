@@ -295,7 +295,7 @@ __attribute__((reqd_work_group_size(GROUP_SIZE, 1, 1)))
 __kernel void ethash_search(
 	__global volatile uint* restrict g_output,
 	__constant hash32_t const* g_header,
-	__global uint const* g_dag,
+	__global uint4 const* g_dag,
 	ulong start_nonce,
 	ulong target,
 	uint isolate
@@ -337,21 +337,21 @@ __kernel void ethash_search(
 	for (int i=0; i < ACCESSES; i++) {
 		uint p = fnv(state.uints[0] ^ i, mix.uints[i % 32]) % DAG_SIZE;
 		uint offset = p * 2;
-		uint newData[32];
+		uint4 newData[8];
 		
 		 for (int j = 0; j < 2; j++) {
                 uint itemIdx = offset + j;
-				for (int j1=0;j1<16;j1++){
+				for (int j1=0;j1<4;j1++){
 					//newData[j*16+j1] = itemIdx * 16 + j1;
-					newData[j*16+j1] = g_dag[itemIdx * 16 + j1];
+					newData[j*4+j1] = g_dag[itemIdx * 4 + j1];
 				}
 				//copy(newData, g_dag + itemIdx * 16, 16);
             }
 			
 			
 			
-		for (int i1 = 0; i1 < 32; i1++) {
-			mix.uints[i1] = fnv(mix.uints[i1], newData[i1]);
+		for (int i1 = 0; i1 < 8; i1++) {
+			mix.uint4s[i1] = fnv4+(mix.uint4s[i1], newData[i1]);
 		}
 	}
 	

@@ -288,6 +288,7 @@ void CLMiner::workLoop()
 	float meanTime = 0;
 	int count = 0;
 	bool isFirst = true;
+	int benchmarkTime = 0;
 
 
 	// The work package currently processed by GPU.
@@ -353,17 +354,22 @@ void CLMiner::workLoop()
 			// TODO: could use pinned host pointer instead.
 			uint32_t results[c_maxSearchResults + 1];
 			m_queue.enqueueReadBuffer(m_searchBuffer, CL_TRUE, 0, sizeof(results), &results);
-            if (checkTime() < 300000) {
+            if (checkTime() < 600000) {
+				benchmarkTime = getTime();
 				openclCycleCount++;
 				if (wasInvalidHeader) {
 					wasInvalidHeader = false;
 					lostHashCount += m_globalWorkSize;
+					changeBlockCount ++;
 				} else {
 					hashCount += m_globalWorkSize;
 				//	cllog<<"increment " << hashCount;
 				}
 			} else {
-				 cllog<<"benchmark finish; valid hashes = " << hashCount << "; invalid hashes = " << lostHashCount<<"; cycles = "<< openclCycleCount;
+				 cllog<<"benchmark finish; valid hashes = " << hashCount << 
+				 "; invalid hashes = " << lostHashCount<<
+				 "; cycles = "<< openclCycleCount <<
+				 "time = "<<benchmarkTime<<"; count of new work = "<<changeBlockCount; 
 			}
 			uint64_t nonce = 0;
 			if (results[0] > 0)
@@ -733,6 +739,7 @@ bool CLMiner::init(const h256& seed)
 			m_dagKernel = cl::Kernel(program, "ethash_calculate_dag_item");
 			cllog << "Writing light cache buffer";
 			m_queue.enqueueWriteBuffer(m_light, CL_TRUE, 0, light->data().size(), light->data().data());
+			
 		}
 		catch (cl::Error const& err)
 		{
