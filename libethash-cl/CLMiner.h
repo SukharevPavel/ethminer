@@ -137,12 +137,15 @@ private:
 		return curTime;
 	}
 	
-	/*void printMillis(int num){
-		milliseconds ms = duration_cast< milliseconds >(
+	milliseconds lastTime;
+	
+	long printTime(){
+		milliseconds time = duration_cast< milliseconds >(
 			system_clock::now().time_since_epoch());
-		printf("on line %d for %lu ms\n", num, ms - lastMs);
-		lastMs = ms;
-	};*/
+		long diff = time.count() - lastTime.count();
+		lastTime = time;
+		return diff;
+	};
 
 	bool init(const h256& seed);
 
@@ -154,6 +157,8 @@ private:
 	cl::Buffer m_light;
 	cl::Buffer m_header;
 	cl::Buffer m_searchBuffer;
+	cl::Buffer m_searchPinnedBuffer;
+	uint32_t* pinnedPointer;
 	unsigned m_globalWorkSize = 0;
 	unsigned m_workgroupSize = 0;
 

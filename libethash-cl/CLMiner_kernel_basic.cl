@@ -251,6 +251,11 @@ static uint4 fnv4(uint4 x, uint4 y)
 	return x * FNV_PRIME ^ y;
 }
 
+static uint16 fnv16(uint16 x, uint16 y)
+{
+	return x * FNV_PRIME ^ y;
+}
+
 static uint fnv_reduce(uint4 v)
 {
 	return fnv(fnv(fnv(v.x, v.y), v.z), v.w);
@@ -281,13 +286,26 @@ typedef struct
 
 typedef union {
 	uint uints[32];
+	ulong ulongs[16];
 	uint4 uint4s[8];
+	uint16 uint16s[2];
 } type_mix;
+
+typedef union {
+	uint uints[8];
+	ulong ulongs[4];
+} type_cmix;
 
 typedef union {
 	ulong ulongs[25];
 	uint uints[50];
 } type_state;
+
+typedef union {
+	uint4 uint4s[8];
+	uint16 uint16s[2];
+} type_newdata;
+
 
 #if PLATFORM != OPENCL_PLATFORM_NVIDIA // use maxrregs on nv
 __attribute__((reqd_work_group_size(GROUP_SIZE, 1, 1)))
@@ -295,7 +313,7 @@ __attribute__((reqd_work_group_size(GROUP_SIZE, 1, 1)))
 __kernel void ethash_search(
 	__global volatile uint* restrict g_output,
 	__constant hash32_t const* g_header,
-	__global uint4 const* g_dag,
+	__global uint16 const* g_dag,
 	ulong start_nonce,
 	ulong target,
 	uint isolate
@@ -327,60 +345,57 @@ __kernel void ethash_search(
 	keccak_f1600_no_absorb((uint2*)state.ulongs, 8, isolate);
 	
 	type_mix mix;
-	for (int i=0; i<16; i++) {
-		mix.uints[i] = state.uints[i];
+	/*for (int i=0; i<8; i++) {
+		mix.uint4s[i] = state.uint4s[i];
 		mix.uints[i+16] = state.uints[i];
-	}
-
+	}*/
+	copy(mix.ulongs, state.ulongs, 8);
+    copy(mix.ulongs + 8, state.ulongs, 8);
 
 	
 	for (int i=0; i < ACCESSES; i++) {
-		uint p = fnv(state.uints[0] ^ i, mix.uints[i % 32]) % DAG_SIZE;
+		
+		uint x = state.uints[0] ^ i;
+		uint y = mix.uints[i % 32];
+		uint xy = fnv(x,y);
+		uint p =  xy % DAG_SIZE;
+		if (state.uints[0] < 100000) {
+			printf("ACCESS = %u\n", i);
+			printf("X = %u\n",x);
+			printf("Y = %u\n",y);
+			printf("XY = %u\n",xy);
+			printf("P = %u\n",p);
+		}
 		uint offset = p * 2;
-		uint4 newData[8];
+		type_newdata newData;
 		
 		 for (int j = 0; j < 2; j++) {
                 uint itemIdx = offset + j;
-				for (int j1=0;j1<4;j1++){
-					//newData[j*16+j1] = itemIdx * 16 + j1;
-					newData[j*4+j1] = g_dag[itemIdx * 4 + j1];
-				}
+				newData.uint16s[j] = g_dag[itemIdx];
 				//copy(newData, g_dag + itemIdx * 16, 16);
             }
 			
 			
 			
-		for (int i1 = 0; i1 < 8; i1++) {
-			mix.uint4s[i1] = fnv4+(mix.uint4s[i1], newData[i1]);
+		for (int i1 = 0; i1 < 2; i1++) {
+			mix.uint16s[i1] = fnv16(mix.uint16s[i1], newData.uint16s[i1]);
 		}
 	}
 	
 	
 	
-	int cmix[8];
-        for (int i = 0; i < 32; i += 4) {
-            uint fnv1 = fnv(mix.uints[i], mix.uints[i + 1]);
-            uint fnv2 = fnv(fnv1, mix.uints[i + 2]);
-            uint fnv3 = fnv(fnv2, mix.uints[i + 3]);
-            cmix[i >> 2] = fnv3;
+	type_cmix cmix;
+        for (int i = 0; i < 8; i += 1) {
+            cmix.uints[i] = fnv_reduce(mix.uint4s[i]);
         }
-	copy(state.uints + 16, cmix, 8)
+	copy(state.ulongs + 8, cmix.ulongs, 4)
 	for (uint i = 13; i != 25; ++i)
 	{
 		state.ulongs[i] = 0;
 	}
 	state.ulongs[12] = 0x0000000000000001;
 	state.ulongs[16] = 0x8000000000000000;
-	/*if (get_global_id(0) == 0) {
-				int inner;
-				for (inner = 0; inner < 50; inner++)
-					{
-						if (inner > 0) printf(":");
-						printf("%d", state.uints[inner]);
-					}
-				printf("\n");
-				}*/
-	// keccak_256(keccak_512(header..nonce) .. mix);
+	
 	keccak_f1600_no_absorb((uint2*)state.ulongs, 1, isolate);
 
 	if (as_ulong(as_uchar8(state.ulongs[0]).s76543210) < target)

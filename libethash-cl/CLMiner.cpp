@@ -327,10 +327,11 @@ void CLMiner::workLoop()
 				// Upper 64 bits of the boundary.
 				const uint64_t target = (uint64_t)(u64)((u256)w.boundary >> 192);
 				assert(target > 0);
-
 				// Update header constant buffer.
 				m_queue.enqueueWriteBuffer(m_header, CL_FALSE, 0, w.header.size, w.header.data());
 				m_queue.enqueueWriteBuffer(m_searchBuffer, CL_FALSE, 0, sizeof(c_zero), &c_zero);
+				//pinned host pointer
+				pinnedPointer = (uint32_t*)m_queue.enqueueMapBuffer(m_searchPinnedBuffer, CL_FALSE, 0, 0, (c_maxSearchResults + 1) * sizeof(uint32_t));
 
 				wasInvalidHeader = true;
 
@@ -352,8 +353,9 @@ void CLMiner::workLoop()
 			}
 			// Read results.
 			// TODO: could use pinned host pointer instead.
-			uint32_t results[c_maxSearchResults + 1];
-			m_queue.enqueueReadBuffer(m_searchBuffer, CL_TRUE, 0, sizeof(results), &results);
+			m_queue.enqueueReadBuffer(m_searchBuffer, CL_TRUE, 0, (c_maxSearchResults + 1) * sizeof(uint32_t), pinnedPointer);
+		//uint32_t resultCount = &pinnedPointer;cllog<<"360";
+			//uint32_t resultFirst = &pinnedPointer + sizeof(uint32_t);cllog<<"361";
             if (checkTime() < 600000) {
 				benchmarkTime = getTime();
 				openclCycleCount++;
@@ -372,10 +374,10 @@ void CLMiner::workLoop()
 				 "time = "<<benchmarkTime<<"; count of new work = "<<changeBlockCount; 
 			}
 			uint64_t nonce = 0;
-			if (results[0] > 0)
+			if (pinnedPointer[0] > 0)
 			{
 				// Ignore results except the first one.
-				nonce = current.startNonce + results[1];
+				nonce = current.startNonce + pinnedPointer[1];
 				// Reset search buffer if any solution found.
 				m_queue.enqueueWriteBuffer(m_searchBuffer, CL_FALSE, 0, sizeof(c_zero), &c_zero);
 			}
@@ -384,10 +386,7 @@ void CLMiner::workLoop()
 			
 			cl::Event event;
 			
-			if (true) {
 			m_queue.enqueueNDRangeKernel(m_searchKernel, cl::NullRange, m_globalWorkSize, m_workgroupSize);
-			isFirst = false;
-			}
             /*m_queue.enqueueNDRangeKernel(m_searchKernel, cl::NullRange, m_globalWorkSize, m_workgroupSize, NULL, &event);
 
             event.wait();
@@ -757,7 +756,7 @@ bool CLMiner::init(const h256& seed)
 		// create mining buffers
 		ETHCL_LOG("Creating mining buffer");
 		m_searchBuffer = cl::Buffer(m_context, CL_MEM_WRITE_ONLY, (c_maxSearchResults + 1) * sizeof(uint32_t));
-
+		m_searchPinnedBuffer = cl::Buffer(m_context, CL_MEM_WRITE_ONLY | CL_MEM_ALLOC_HOST_PTR, (c_maxSearchResults + 1) * sizeof(uint32_t));
 		uint32_t const work = (uint32_t)(dagSize / sizeof(node));
 		uint32_t fullRuns = work / m_globalWorkSize;
 		uint32_t const restWork = work % m_globalWorkSize;

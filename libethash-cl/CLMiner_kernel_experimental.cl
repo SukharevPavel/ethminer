@@ -57,6 +57,10 @@
     #define LN_THREAD_PER_HASH  3
     #define ACCESS_INCREMENT    4
     #define ACCESS_SHIFT        2
+	#elif THREADS_PER_HASH == 16
+    #define LN_THREAD_PER_HASH  4
+    #define ACCESS_INCREMENT    2
+    #define ACCESS_SHIFT        1
 #else
 	#error "Invalid THREADS_PER_HASH, it needs to be 1, 2, 4 or 8"
 #endif
@@ -69,6 +73,11 @@
 #define FNV(x, y)        ((x) * FNV_PRIME ^ (y))
 #define FNV_REDUCE(v)    FNV(FNV(FNV(v.x, v.y), v.z), v.w)
 
+
+static ushort fnv_reduce_short(uint2 v)
+{
+	return FNV(FNV(FNV(v.x & 0xFF , v.x >> 8), v.y & 0xFF), v.y >> 8);
+}
 #define mem_fence(x) barrier(x)
 
 
@@ -236,7 +245,7 @@ typedef struct
 typedef union {
     ulong   ulongs[64 / sizeof(ulong)];
     ulong4  ulong4s[64 / sizeof(ulong4)];
- 
+	ushort ushorts[64 / sizeof(ushort)];
     uint    uints[64 / sizeof(uint)];
     uint2   uint2s[64 / sizeof(uint2)];
     uint4   uint4s[64 / sizeof(uint4)];
@@ -348,7 +357,7 @@ __kernel void ethash_search(
 #elif THREADS_PER_HASH == 8
         uint4 mix = share->uint4s[thread_id & 3];
 #elif THREADS_PER_HASH == 16
-        uint8 mix = share->uints[thread_id & 7];
+        uint2 mix = share->uint2s[thread_id & 7];
 #endif
         mem_fence(CLK_LOCAL_MEM_FENCE);
  
@@ -374,6 +383,8 @@ __kernel void ethash_search(
                 mix = FNV(mix, g_dag[share->uints[0]].uint8s[thread_id]);
 #elif THREADS_PER_HASH == 8
                 mix = FNV(mix, g_dag[share->uints[0]].uint4s[thread_id]);
+#elif THREADS_PER_HASH == 16
+				mix = FNV(mix, g_dag[share->uints[0]].uint2s[thread_id]);
 #endif
                 mem_fence(CLK_LOCAL_MEM_FENCE);
             }
@@ -390,6 +401,8 @@ __kernel void ethash_search(
 		    share->uint2s[thread_id] = (uint2)(FNV_REDUCE(mix.lo), FNV_REDUCE(mix.hi));
 #elif THREADS_PER_HASH == 8
         share->uints[thread_id] = FNV_REDUCE(mix);
+#elif THREADS_PER_HASH == 16
+		share->ushorts[thread_id] = fnv_reduce_short(mix);
 #endif
         mem_fence(CLK_LOCAL_MEM_FENCE);
  
