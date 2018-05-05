@@ -298,25 +298,22 @@ void CLMiner::workLoop()
 	current.header = h256{1u};
 	current.seed = h256{1u};
 	WorkPackage w = work();
-	bool hasNewHeader = false;
 	bool first = true;
 	try {
 		while (true)
 		{
-			hasNewHeader = false;
 			int32_t results[c_maxSearchResults + 1];
 			if (!first) {
 			results[0] = c_unread;
 			// Read results.
 			// TODO: could use pinned host pointer instead.
-		//	cllog << "try to read results";
+			cllog << "try to read results";
 			m_queue.enqueueReadBuffer(m_searchBuffer, CL_FALSE, 0, sizeof(results), &results);
 			}
-			//cllog << "waiting for processing or new header";
+			cllog << "waiting for processing or new header";
 			while ((results[0] == c_unread || first )) {
 				first = false;
 				w = work();
-				if (!hasNewHeader) {
 				if (current.header != w.header)
 				{	
 					// New work received. Update GPU data.
@@ -337,22 +334,23 @@ void CLMiner::workLoop()
 								this_thread::sleep_for(chrono::seconds(1));
 							++s_dagLoadIndex;
 						}
-					//	cllog << "start init";
+						cllog << "start init";
 						init(w.seed);
 					}
 
 					// Upper 64 bits of the boundary.
 					const uint64_t target = (uint64_t)(u64)((u256)w.boundary >> 192);
 					assert(target > 0);
-				//	cllog<<"switch header";
-					hasNewHeader = true;
+					cllog<<"switch header";
 
 					// Update header constant buffer.
 					m_queue.enqueueWriteBuffer(m_header, CL_FALSE, 0, w.header.size, w.header.data());
 					m_invalidatingQueue.enqueueWriteBuffer(m_searchBuffer, CL_TRUE, 0, sizeof(c_invalid), &c_invalid);
-				//	cllog<<"search buffer invalidated";
+					cllog<<"search buffer invalidated";
 					m_searchKernel.setArg(0, m_searchBuffer);  // Supply output buffer to kernel.
 					m_searchKernel.setArg(4, target);
+					
+					current = w;        // kernel now processing newest work
 					// FIXME: This logic should be move out of here.
 					if (w.exSizeBits >= 0)
 					{
@@ -365,14 +363,8 @@ void CLMiner::workLoop()
 					clswitchlog << "Switch time"
 						<< std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::high_resolution_clock::now() - workSwitchStart).count()
 						<< "ms.";
-				}
 				
 				}
-			}
-			if (results[0] != c_unread){
-			//	cllog << "results were read";
-			} else if (hasNewHeader) {
-			//	cllog << "new header was received";
 			}
 			m_queue.enqueueWriteBuffer(m_searchBuffer, CL_FALSE, 0, sizeof(c_zero), &c_zero);
 		//	cllog << "send invalidation of search buffer";
@@ -386,9 +378,8 @@ void CLMiner::workLoop()
 			// Run the kernel.
 			m_searchKernel.setArg(3, startNonce);
 			
-			cl::Event event;
 		//	cllog << "try to send NDRangeKernel";
-		printMillis(388);
+			printMillis(388);
 			m_queue.enqueueNDRangeKernel(m_searchKernel, cl::NullRange, m_globalWorkSize, m_workgroupSize);
 			//cllog << "send NDRangeKernel";
 			if (nonce != 0) {
@@ -403,8 +394,6 @@ void CLMiner::workLoop()
 			}
 
             
-
-			current = w;        // kernel now processing newest work
 			current.startNonce = startNonce;
 			// Increase start nonce for following kernel execution.
 			startNonce += m_globalWorkSize;
