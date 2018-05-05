@@ -346,6 +346,7 @@ void CLMiner::workLoop()
 					// Update header constant buffer.
 					m_queue.enqueueWriteBuffer(m_header, CL_FALSE, 0, w.header.size, w.header.data());
 					m_invalidatingQueue.enqueueWriteBuffer(m_searchBuffer, CL_TRUE, 0, sizeof(c_invalid), &c_invalid);
+					m_queue.enqueueWriteBuffer(m_searchBuffer, CL_FALSE, 0, sizeof(c_zero), &c_zero);
 					cllog<<"search buffer invalidated";
 					m_searchKernel.setArg(0, m_searchBuffer);  // Supply output buffer to kernel.
 					m_searchKernel.setArg(4, target);
@@ -366,7 +367,7 @@ void CLMiner::workLoop()
 				
 				}
 			}
-			m_queue.enqueueWriteBuffer(m_searchBuffer, CL_FALSE, 0, sizeof(c_zero), &c_zero);
+			
 		//	cllog << "send invalidation of search buffer";
 			uint64_t nonce = 0;
 			if (results[0] > 0)
@@ -374,6 +375,7 @@ void CLMiner::workLoop()
 				// Ignore results except the first one.
 				nonce = current.startNonce + results[1];
 				// Reset search buffer if any solution found.
+				m_queue.enqueueWriteBuffer(m_searchBuffer, CL_FALSE, 0, sizeof(c_zero), &c_zero);
 			}
 			// Run the kernel.
 			m_searchKernel.setArg(3, startNonce);
