@@ -73,6 +73,7 @@ public:
 		unsigned _dagLoadMode,
 		unsigned _dagCreateDevice
 	);
+	static void checkNewWork(uint64_t &startNonce, WorkPackage &w, WorkPackage &current);
 	static void setNumInstances(unsigned _instances) { s_numInstances = std::min<unsigned>(_instances, getNumDevices()); }
 	static void setThreadsPerHash(unsigned _threadsPerHash){s_threadsPerHash = _threadsPerHash; }
 	static void setDevices(const vector<unsigned>& _devices, unsigned _selectedDeviceCount)
@@ -137,17 +138,20 @@ private:
 		return curTime;
 	}
 	
-	/*void printMillis(int num){
+	milliseconds lastMs;
+	
+	void printMillis(int num){
 		milliseconds ms = duration_cast< milliseconds >(
 			system_clock::now().time_since_epoch());
 		printf("on line %d for %lu ms\n", num, ms - lastMs);
 		lastMs = ms;
-	};*/
+	};
 
 	bool init(const h256& seed);
 
 	cl::Context m_context;
 	cl::CommandQueue m_queue;
+	cl::CommandQueue m_invalidatingQueue;
 	cl::Kernel m_searchKernel;
 	cl::Kernel m_dagKernel;
 	cl::Buffer m_dag;

@@ -281,7 +281,9 @@ CLMiner::~CLMiner()
 void CLMiner::workLoop()
 {
 	// Memory for zero-ing buffers. Cannot be static because crashes on macOS.
-	uint32_t const c_zero = 0;
+	int32_t const c_zero = 0;
+	int32_t const c_unread = -1;
+	int32_t const c_invalid = -2;
 
 	uint64_t startNonce = 0;
 	
@@ -295,116 +297,96 @@ void CLMiner::workLoop()
 	WorkPackage current;
 	current.header = h256{1u};
 	current.seed = h256{1u};
-
+	WorkPackage w = work();
+	bool hasNewHeader = false;
+	bool first = true;
 	try {
 		while (true)
 		{
-			const WorkPackage w = work();
-			if (current.header != w.header)
-			{	
-				// New work received. Update GPU data.
-				if (!w)
-				{
-					cllog << "No work. Pause for 3 s.";
-					std::this_thread::sleep_for(std::chrono::seconds(3));
-					continue;
-				}
-
-				//cllog << "New work: header" << w.header << "target" << w.boundary.hex();
-
-				if (current.seed != w.seed)
-				{
-					if (s_dagLoadMode == DAG_LOAD_MODE_SEQUENTIAL)
-					{
-						while (s_dagLoadIndex < index)
-							this_thread::sleep_for(chrono::seconds(1));
-						++s_dagLoadIndex;
-					}
-
-					init(w.seed);
-				}
-
-				// Upper 64 bits of the boundary.
-				const uint64_t target = (uint64_t)(u64)((u256)w.boundary >> 192);
-				assert(target > 0);
-
-				// Update header constant buffer.
-				m_queue.enqueueWriteBuffer(m_header, CL_FALSE, 0, w.header.size, w.header.data());
-				m_queue.enqueueWriteBuffer(m_searchBuffer, CL_FALSE, 0, sizeof(c_zero), &c_zero);
-
-				wasInvalidHeader = true;
-
-				m_searchKernel.setArg(0, m_searchBuffer);  // Supply output buffer to kernel.
-				m_searchKernel.setArg(4, target);
-
-				// FIXME: This logic should be move out of here.
-				if (w.exSizeBits >= 0)
-				{
-					// This can support up to 2^c_log2MaxMiners devices.
-					startNonce = w.startNonce | ((uint64_t)index << (64 - LOG2_MAX_MINERS - w.exSizeBits));
-				}
-				else
-					startNonce = get_start_nonce();
-
-				clswitchlog << "Switch time"
-					<< std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::high_resolution_clock::now() - workSwitchStart).count()
-					<< "ms.";
-			}
+			hasNewHeader = false;
+			int32_t results[c_maxSearchResults + 1];
+			if (!first) {
+			results[0] = c_unread;
 			// Read results.
 			// TODO: could use pinned host pointer instead.
-			uint32_t results[c_maxSearchResults + 1];
-			m_queue.enqueueReadBuffer(m_searchBuffer, CL_TRUE, 0, sizeof(results), &results);
-            if (checkTime() < 600000) {
-				benchmarkTime = getTime();
-				openclCycleCount++;
-				if (wasInvalidHeader) {
-					wasInvalidHeader = false;
-					lostHashCount += m_globalWorkSize;
-					changeBlockCount ++;
-				} else {
-					hashCount += m_globalWorkSize;
-				//	cllog<<"increment " << hashCount;
-				}
-			} else {
-				 cllog<<"benchmark finish; valid hashes = " << hashCount << 
-				 "; invalid hashes = " << lostHashCount<<
-				 "; cycles = "<< openclCycleCount <<
-				 "time = "<<benchmarkTime<<"; count of new work = "<<changeBlockCount; 
+			cllog << "try to read results";
+			m_queue.enqueueReadBuffer(m_searchBuffer, CL_FALSE, 0, sizeof(results), &results);
 			}
+			cllog << "waiting for processing or new header";
+			while ((results[0] == c_unread || first ) && !hasNewHeader) {
+				first = false;
+				w = work();
+				if (current.header != w.header)
+				{	
+					// New work received. Update GPU data.
+					while (!w)
+					{
+						cllog << "No work. Pause for 3 s.";
+						std::this_thread::sleep_for(std::chrono::seconds(3));
+						w = work();
+					}
+
+					//cllog << "New work: header" << w.header << "target" << w.boundary.hex();
+
+					if (current.seed != w.seed)
+					{
+						if (s_dagLoadMode == DAG_LOAD_MODE_SEQUENTIAL)
+						{
+							while (s_dagLoadIndex < index)
+								this_thread::sleep_for(chrono::seconds(1));
+							++s_dagLoadIndex;
+						}
+						cllog << "start init";
+						init(w.seed);
+					}
+
+					// Upper 64 bits of the boundary.
+					const uint64_t target = (uint64_t)(u64)((u256)w.boundary >> 192);
+					assert(target > 0);
+					cllog<<"switch header";
+					hasNewHeader = true;
+
+					// Update header constant buffer.
+					m_queue.enqueueWriteBuffer(m_header, CL_FALSE, 0, w.header.size, w.header.data());
+					m_queue.enqueueWriteBuffer(m_searchBuffer, CL_TRUE, 0, sizeof(c_invalid), &c_invalid);
+					cllog<<"search buffer invalidated";
+					m_searchKernel.setArg(0, m_searchBuffer);  // Supply output buffer to kernel.
+					m_searchKernel.setArg(4, target);
+					// FIXME: This logic should be move out of here.
+					if (w.exSizeBits >= 0)
+					{
+						// This can support up to 2^c_log2MaxMiners devices.
+						startNonce = w.startNonce | ((uint64_t)index << (64 - LOG2_MAX_MINERS - w.exSizeBits));
+					}
+					else
+						startNonce = get_start_nonce();
+
+					clswitchlog << "Switch time"
+						<< std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::high_resolution_clock::now() - workSwitchStart).count()
+						<< "ms.";
+				}
+			}
+			if (results[0] != c_unread){
+				cllog << "results were read";
+			} else if (hasNewHeader) {
+				cllog << "new header was received";
+			}
+			m_queue.enqueueWriteBuffer(m_searchBuffer, CL_FALSE, 0, sizeof(c_zero), &c_zero);
+			cllog << "send invalidation of search buffer";
 			uint64_t nonce = 0;
 			if (results[0] > 0)
 			{
 				// Ignore results except the first one.
 				nonce = current.startNonce + results[1];
 				// Reset search buffer if any solution found.
-				m_queue.enqueueWriteBuffer(m_searchBuffer, CL_FALSE, 0, sizeof(c_zero), &c_zero);
 			}
 			// Run the kernel.
 			m_searchKernel.setArg(3, startNonce);
 			
 			cl::Event event;
-			
-			if (true) {
+			cllog << "try to send NDRangeKernel";
 			m_queue.enqueueNDRangeKernel(m_searchKernel, cl::NullRange, m_globalWorkSize, m_workgroupSize);
-			isFirst = false;
-			}
-            /*m_queue.enqueueNDRangeKernel(m_searchKernel, cl::NullRange, m_globalWorkSize, m_workgroupSize, NULL, &event);
-
-            event.wait();
-
-            cl_ulong time_start;
-            cl_ulong time_end;
-
-            event.getProfilingInfo(CL_PROFILING_COMMAND_START, &time_start);
-            event.getProfilingInfo(CL_PROFILING_COMMAND_END, &time_end);
-
-            float milSeconds = (time_end-time_start) / 1000000.0;
-            meanTime = (count * meanTime + milSeconds) / (++count);
-            printf("OpenCl mean Execution time is: %0.3f milliseconds \n", meanTime);*/
-
-
-			// Report results while the kernel is running.
-			// It takes some time because ethash must be re-evaluated on CPU.
+			cllog << "send NDRangeKernel";
 			if (nonce != 0) {
 				Result r = EthashAux::eval(current.seed, current.header, nonce);
                 if (r.value < current.boundary) {
@@ -638,7 +620,7 @@ bool CLMiner::init(const h256& seed)
 		// create context
 		m_context = cl::Context(vector<cl::Device>(&device, &device + 1));
 		m_queue = cl::CommandQueue(m_context, device, CL_QUEUE_PROFILING_ENABLE);
-
+		m_invalidatingQueue = cl::CommandQueue(m_context, device, CL_QUEUE_PROFILING_ENABLE);
 		// make sure that global work size is evenly divisible by the local workgroup size
 		m_workgroupSize = s_workgroupSize;
 		m_globalWorkSize = s_initialGlobalWorkSize;
@@ -756,7 +738,7 @@ bool CLMiner::init(const h256& seed)
 
 		// create mining buffers
 		ETHCL_LOG("Creating mining buffer");
-		m_searchBuffer = cl::Buffer(m_context, CL_MEM_WRITE_ONLY, (c_maxSearchResults + 1) * sizeof(uint32_t));
+		m_searchBuffer = cl::Buffer(m_context, CL_MEM_WRITE_ONLY, (c_maxSearchResults + 1) * sizeof(int32_t));
 
 		uint32_t const work = (uint32_t)(dagSize / sizeof(node));
 		uint32_t fullRuns = work / m_globalWorkSize;

@@ -288,98 +288,101 @@ typedef union {
 __attribute__((reqd_work_group_size(GROUP_SIZE, 1, 1)))
 #endif
 __kernel void ethash_search(
-	__global volatile uint* restrict g_output,
+	__global volatile int* restrict g_output,
 	__constant hash32_t const* g_header,
 	__global hash128_t const* g_dag,
 	ulong start_nonce,
 	ulong target,
-	uint isolate
-	)
+	uint isolate	)
 {
-	__local compute_hash_share share[HASHES_PER_LOOP];
+	if (g_output[0]==0) {
+		__local compute_hash_share share[HASHES_PER_LOOP];
+		uint const gid = get_global_id(0);
 
-	uint const gid = get_global_id(0);
+		// Compute one init hash per work item.
 
-	// Compute one init hash per work item.
+		// sha3_512(header .. nonce)
+		ulong state[25];
+		copy(state, g_header->ulongs, 4);
+		state[4] = start_nonce + gid;
 
-	// sha3_512(header .. nonce)
-	ulong state[25];
-	copy(state, g_header->ulongs, 4);
-	state[4] = start_nonce + gid;
-
-	for (uint i = 6; i != 25; ++i)
-	{
-		state[i] = 0;
-	}
-	state[5] = 0x0000000000000001;
-	state[8] = 0x8000000000000000;
-
-	keccak_f1600_no_absorb((uint2*)state, 8, isolate);
-	
-	// Threads work together in this phase in groups of 8.
-	uint const thread_id = gid & 7;
-	uint const hash_id = (gid % GROUP_SIZE) >> 3;
-
-	for (int i = 0; i < THREADS_PER_HASH; i++)
-	{
-		// share init with other threads
-		if (i == thread_id)
-			copy(share[hash_id].ulongs, state, 8);
-
-		barrier(CLK_LOCAL_MEM_FENCE);
-
-		uint4 mix = share[hash_id].uint4s[thread_id & 3];
-		__local uint *share0 = share[hash_id].uints;
-		barrier(CLK_LOCAL_MEM_FENCE);
-
-		
-
-		// share init0
-		//if (thread_id == 0)
-	//		*share0 = mix.x;
-	//	barrier(CLK_LOCAL_MEM_FENCE);
-		uint init0 = *share0;
-
-		for (uint a = 0; a < ACCESSES; a += 4)
+		for (uint i = 6; i != 25; ++i)
 		{
-			bool update_share = thread_id == ((a >> 2) & (THREADS_PER_HASH - 1));
+			state[i] = 0;
+		}
+		state[5] = 0x0000000000000001;
+		state[8] = 0x8000000000000000;
 
-			for (uint i = 0; i != 4; ++i)
+		keccak_f1600_no_absorb((uint2*)state, 8, isolate);
+		
+		// Threads work together in this phase in groups of 8.
+		uint const thread_id = gid & 7;
+		uint const hash_id = (gid % GROUP_SIZE) >> 3;
+
+		for (int i = 0; i < THREADS_PER_HASH; i++)
+		{
+			// share init with other threads
+			if (i == thread_id)
+				copy(share[hash_id].ulongs, state, 8);
+
+			barrier(CLK_LOCAL_MEM_FENCE);
+
+			uint4 mix = share[hash_id].uint4s[thread_id & 3];
+			__local uint *share0 = share[hash_id].uints;
+			barrier(CLK_LOCAL_MEM_FENCE);
+
+			
+
+			// share init0
+			//if (thread_id == 0)
+		//		*share0 = mix.x;
+		//	barrier(CLK_LOCAL_MEM_FENCE);
+			uint init0 = *share0;
+
+			for (uint a = 0; a < ACCESSES; a += 4)
 			{
-				if (update_share)
-				{
-					*share0 = fnv(init0 ^ (a + i), ((uint *)&mix)[i]) % DAG_SIZE;
-				}
-				barrier(CLK_LOCAL_MEM_FENCE);
+				bool update_share = thread_id == ((a >> 2) & (THREADS_PER_HASH - 1));
 
-				mix = fnv4(mix, g_dag[*share0].uint4s[thread_id]);
+				for (uint i = 0; i != 4; ++i)
+				{
+					if (update_share)
+					{
+						*share0 = fnv(init0 ^ (a + i), ((uint *)&mix)[i]) % DAG_SIZE;
+					}
+					barrier(CLK_LOCAL_MEM_FENCE);
+
+					mix = fnv4(mix, g_dag[*share0].uint4s[thread_id]);
+				}
 			}
+
+			share[hash_id].uints[thread_id] = fnv_reduce(mix);
+			barrier(CLK_LOCAL_MEM_FENCE);
+
+			if (i == thread_id)
+				copy(state + 8, share[hash_id].ulongs, 4);
+
+			barrier(CLK_LOCAL_MEM_FENCE);
 		}
 
-		share[hash_id].uints[thread_id] = fnv_reduce(mix);
-		barrier(CLK_LOCAL_MEM_FENCE);
+		for (uint i = 13; i != 25; ++i)
+		{
+			state[i] = 0;
+		}
+		state[12] = 0x0000000000000001;
+		state[16] = 0x8000000000000000;
 
-		if (i == thread_id)
-			copy(state + 8, share[hash_id].ulongs, 4);
+		// keccak_256(keccak_512(header..nonce) .. mix);
+		keccak_f1600_no_absorb((uint2*)state, 1, isolate);
 
-		barrier(CLK_LOCAL_MEM_FENCE);
+		if (as_ulong(as_uchar8(state[0]).s76543210) < target)
+		{		
+			atomic_inc(&g_output[0]);
+			g_output[1] = get_global_id(0);
+		}
+	} else {
+		printf("drop work!");
 	}
 
-	for (uint i = 13; i != 25; ++i)
-	{
-		state[i] = 0;
-	}
-	state[12] = 0x0000000000000001;
-	state[16] = 0x8000000000000000;
-
-	// keccak_256(keccak_512(header..nonce) .. mix);
-	keccak_f1600_no_absorb((uint2*)state, 1, isolate);
-
-	if (as_ulong(as_uchar8(state[0]).s76543210) < target)
-	{		
-		uint slot = min(MAX_OUTPUTS, atomic_inc(&g_output[0]) + 1);
-		g_output[slot] = gid;
-	}
 }
 
 static void SHA3_512(uint2* s, uint isolate)
