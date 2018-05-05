@@ -348,7 +348,7 @@ void CLMiner::workLoop()
 
 					// Update header constant buffer.
 					m_queue.enqueueWriteBuffer(m_header, CL_FALSE, 0, w.header.size, w.header.data());
-					m_queue.enqueueWriteBuffer(m_searchBuffer, CL_TRUE, 0, sizeof(c_invalid), &c_invalid);
+					m_invalidatingQueue.enqueueWriteBuffer(m_searchBuffer, CL_TRUE, 0, sizeof(c_invalid), &c_invalid);
 					cllog<<"search buffer invalidated";
 					m_searchKernel.setArg(0, m_searchBuffer);  // Supply output buffer to kernel.
 					m_searchKernel.setArg(4, target);

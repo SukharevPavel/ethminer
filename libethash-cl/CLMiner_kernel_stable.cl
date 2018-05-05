@@ -379,8 +379,6 @@ __kernel void ethash_search(
 			atomic_inc(&g_output[0]);
 			g_output[1] = get_global_id(0);
 		}
-	} else {
-		printf("drop work!");
 	}
 
 }
