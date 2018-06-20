@@ -158,6 +158,7 @@ private:
 	cl::Buffer m_light;
 	cl::Buffer m_header;
 	cl::Buffer m_searchBuffer;
+	cl::Buffer m_hashCountBuffer;
 	unsigned m_globalWorkSize = 0;
 	unsigned m_workgroupSize = 0;
 

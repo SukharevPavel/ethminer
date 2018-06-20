@@ -3,6 +3,8 @@
 #define OPENCL_PLATFORM_AMD     2
 #define OPENCL_PLATFORM_CLOVER  3
 
+#pragma OPENCL EXTENSION cl_khr_int64_base_atomics: enable
+
 #ifndef ACCESSES
 #define ACCESSES 64
 #endif
@@ -293,7 +295,8 @@ __kernel void ethash_search(
 	__global hash128_t const* g_dag,
 	ulong start_nonce,
 	ulong target,
-	uint isolate	)
+	uint isolate,
+	__global volatile ulong* g_hashCount)
 {
 	if (g_output[0]==0) {
 		__local compute_hash_share share[HASHES_PER_LOOP];
@@ -373,6 +376,12 @@ __kernel void ethash_search(
 
 		// keccak_256(keccak_512(header..nonce) .. mix);
 		keccak_f1600_no_absorb((uint2*)state, 1, isolate);
+		if (g_output[0]==0) {
+			atomic_inc(&g_hashCount[0]);
+		} else if (g_output[0] == -2) {
+			atomic_inc(&g_hashCount[1]);
+		}
+		
 
 		if (as_ulong(as_uchar8(state[0]).s76543210) < target)
 		{		

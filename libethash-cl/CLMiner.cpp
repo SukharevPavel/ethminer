@@ -307,10 +307,10 @@ void CLMiner::workLoop()
 			results[0] = c_unread;
 			// Read results.
 			// TODO: could use pinned host pointer instead.
-			cllog << "try to read results";
+		//	cllog << "try to read results";
 			m_queue.enqueueReadBuffer(m_searchBuffer, CL_FALSE, 0, sizeof(results), &results);
 			}
-			cllog << "waiting for processing or new header";
+		//	cllog << "waiting for processing or new header";
 			while ((results[0] == c_unread || first )) {
 				first = false;
 				w = work();
@@ -341,13 +341,15 @@ void CLMiner::workLoop()
 					// Upper 64 bits of the boundary.
 					const uint64_t target = (uint64_t)(u64)((u256)w.boundary >> 192);
 					assert(target > 0);
-					cllog<<"switch header";
+			//		cllog<<"switch header";
 
 					// Update header constant buffer.
-					m_queue.enqueueWriteBuffer(m_header, CL_FALSE, 0, w.header.size, w.header.data());
+					
 					m_invalidatingQueue.enqueueWriteBuffer(m_searchBuffer, CL_TRUE, 0, sizeof(c_invalid), &c_invalid);
+					
+					m_queue.enqueueWriteBuffer(m_header, CL_FALSE, 0, w.header.size, w.header.data());
 					m_queue.enqueueWriteBuffer(m_searchBuffer, CL_FALSE, 0, sizeof(c_zero), &c_zero);
-					cllog<<"search buffer invalidated";
+			//		cllog<<"search buffer invalidated";
 					m_searchKernel.setArg(0, m_searchBuffer);  // Supply output buffer to kernel.
 					m_searchKernel.setArg(4, target);
 					
@@ -372,16 +374,18 @@ void CLMiner::workLoop()
 			uint64_t nonce = 0;
 			if (results[0] > 0)
 			{
+\
 				// Ignore results except the first one.
 				nonce = current.startNonce + results[1];
 				// Reset search buffer if any solution found.
 				m_queue.enqueueWriteBuffer(m_searchBuffer, CL_FALSE, 0, sizeof(c_zero), &c_zero);
+
 			}
 			// Run the kernel.
 			m_searchKernel.setArg(3, startNonce);
 			
 		//	cllog << "try to send NDRangeKernel";
-			printMillis(388);
+		//	printMillis(388);
 			m_queue.enqueueNDRangeKernel(m_searchKernel, cl::NullRange, m_globalWorkSize, m_workgroupSize);
 			//cllog << "send NDRangeKernel";
 			if (nonce != 0) {
@@ -405,6 +409,9 @@ void CLMiner::workLoop()
 			// Check if we should stop.
 			if (shouldStop())
 			{
+				unsigned long hashResults[2];
+				m_invalidatingQueue.enqueueReadBuffer(m_hashCountBuffer, CL_TRUE, 0, sizeof(hashResults), &hashResults);
+				cllog<<"Hash count :"<<hashResults[0]<<";Invalid hash count :"<<hashResults[1];
 				// Make sure the last buffer write has finished --
 				// it reads local variable.
 				m_queue.finish();
@@ -734,6 +741,11 @@ bool CLMiner::init(const h256& seed)
 		// create mining buffers
 		ETHCL_LOG("Creating mining buffer");
 		m_searchBuffer = cl::Buffer(m_context, CL_MEM_WRITE_ONLY, (c_maxSearchResults + 1) * sizeof(int32_t));
+		m_hashCountBuffer = cl::Buffer(m_context, CL_MEM_WRITE_ONLY, 2 * sizeof(unsigned long));
+		
+		unsigned long const c_zero = 0; 
+		m_invalidatingQueue.enqueueWriteBuffer(m_hashCountBuffer, CL_TRUE, 0, sizeof(c_zero), &c_zero);
+		m_searchKernel.setArg(6,m_hashCountBuffer);
 
 		uint32_t const work = (uint32_t)(dagSize / sizeof(node));
 		uint32_t fullRuns = work / m_globalWorkSize;
