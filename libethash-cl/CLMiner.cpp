@@ -402,7 +402,11 @@ void CLMiner::workLoop()
 			if (checkTime()>599900){
 				unsigned int hashResults[33];
 				m_invalidatingQueue.enqueueReadBuffer(m_hashCountBuffer, CL_TRUE, 0, sizeof(hashResults), &hashResults);
-				cllog<<"Hash count :"<<hashResults[0]<<";Invalid hash count :"<<hashResults[32]<<";Time = "<<checkTime();
+				unsigned long validHash = 0;
+				for (int i=0;i<32;i++) {
+					validHash+=hashResults[i];
+				}
+				cllog<<"Hash count :"<<validHash<<";Invalid hash count :"<<hashResults[32]<<";Time = "<<checkTime();
 			}
 
             
