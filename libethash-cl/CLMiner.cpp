@@ -399,7 +399,7 @@ void CLMiner::workLoop()
 				}
 			}
 			
-			if (checkTime()>599900){
+				if (checkTime()>599000 || checkTime()<1000){			
 				unsigned int hashResults[33];
 				m_invalidatingQueue.enqueueReadBuffer(m_hashCountBuffer, CL_TRUE, 0, sizeof(hashResults), &hashResults);
 				unsigned long validHash = 0;
@@ -756,10 +756,6 @@ bool CLMiner::init(const h256& seed)
 		ETHCL_LOG("Creating mining buffer");
 		m_searchBuffer = cl::Buffer(m_context, CL_MEM_WRITE_ONLY, (c_maxSearchResults + 1) * sizeof(int32_t));
 		m_hashCountBuffer = cl::Buffer(m_context, CL_MEM_WRITE_ONLY, 33 * sizeof(unsigned int));
-		
-		unsigned int const c_zero = 0; 
-		m_invalidatingQueue.enqueueWriteBuffer(m_hashCountBuffer, CL_TRUE, 0, sizeof(c_zero), &c_zero);
-		m_searchKernel.setArg(6,m_hashCountBuffer);
 
 		uint32_t const work = (uint32_t)(dagSize / sizeof(node));
 		uint32_t fullRuns = work / m_globalWorkSize;
@@ -778,7 +774,9 @@ bool CLMiner::init(const h256& seed)
 			m_queue.finish();
 		}
 		auto endDAG = std::chrono::steady_clock::now();
-
+		cl_uint const c_zero = 0;
+		m_queue.enqueueFillBuffer(m_hashCountBuffer, c_zero,0, sizeof(c_zero) * 33);
+		m_searchKernel.setArg(6,m_hashCountBuffer);
 		auto dagTime = std::chrono::duration_cast<std::chrono::milliseconds>(endDAG-startDAG);
 		float gb = (float)dagSize / (1024 * 1024 * 1024);
 		cnote << gb << " GB of DAG data generated in" << dagTime.count() << "ms.";
