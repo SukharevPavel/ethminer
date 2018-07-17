@@ -400,9 +400,9 @@ void CLMiner::workLoop()
 			}
 			
 			if (checkTime()>599900){
-				unsigned long hashResults[2];
+				unsigned int hashResults[33];
 				m_invalidatingQueue.enqueueReadBuffer(m_hashCountBuffer, CL_TRUE, 0, sizeof(hashResults), &hashResults);
-				cllog<<"Hash count :"<<hashResults[0]<<";Invalid hash count :"<<hashResults[1]<<";Time = "<<checkTime();
+				cllog<<"Hash count :"<<hashResults[0]<<";Invalid hash count :"<<hashResults[32]<<";Time = "<<checkTime();
 			}
 
             
@@ -415,9 +415,13 @@ void CLMiner::workLoop()
 			// Check if we should stop.
 			if (shouldStop())
 			{
-				unsigned long hashResults[2];
+				unsigned int hashResults[33];
 				m_invalidatingQueue.enqueueReadBuffer(m_hashCountBuffer, CL_TRUE, 0, sizeof(hashResults), &hashResults);
-				cllog<<"Hash count :"<<hashResults[0]<<";Invalid hash count :"<<hashResults[1]<<";Time = "<<checkTime();
+				unsigned long validHash = 0;
+				for (int i=0;i<32;i++) {
+					validHash+=hashResults[i];
+				}
+				cllog<<"Hash count :"<<validHash<<";Invalid hash count :"<<hashResults[32]<<";Time = "<<checkTime();
 				// Make sure the last buffer write has finished --
 				// it reads local variable.
 				m_queue.finish();
@@ -747,9 +751,9 @@ bool CLMiner::init(const h256& seed)
 		// create mining buffers
 		ETHCL_LOG("Creating mining buffer");
 		m_searchBuffer = cl::Buffer(m_context, CL_MEM_WRITE_ONLY, (c_maxSearchResults + 1) * sizeof(int32_t));
-		m_hashCountBuffer = cl::Buffer(m_context, CL_MEM_WRITE_ONLY, 2 * sizeof(unsigned long));
+		m_hashCountBuffer = cl::Buffer(m_context, CL_MEM_WRITE_ONLY, 33 * sizeof(unsigned int));
 		
-		unsigned long const c_zero = 0; 
+		unsigned int const c_zero = 0; 
 		m_invalidatingQueue.enqueueWriteBuffer(m_hashCountBuffer, CL_TRUE, 0, sizeof(c_zero), &c_zero);
 		m_searchKernel.setArg(6,m_hashCountBuffer);
 
