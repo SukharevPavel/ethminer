@@ -289,8 +289,8 @@ void CLMiner::workLoop()
 	
 	float meanTime = 0;
 	int count = 0;
-	bool isFirst = true;
 	int benchmarkTime = 0;
+	bool testEnds = false;
 
 
 	// The work package currently processed by GPU.
@@ -383,7 +383,7 @@ void CLMiner::workLoop()
 			}
 			// Run the kernel.
 			m_searchKernel.setArg(3, startNonce);
-			
+
 		//	cllog << "try to send NDRangeKernel";
 		//	printMillis(388);
 			m_queue.enqueueNDRangeKernel(m_searchKernel, cl::NullRange, m_globalWorkSize, m_workgroupSize);
@@ -398,6 +398,12 @@ void CLMiner::workLoop()
 					cwarn << "FAILURE: GPU gave incorrect result!";
 				}
 			}
+			
+			if (checkTime()>599900){
+				unsigned long hashResults[2];
+				m_invalidatingQueue.enqueueReadBuffer(m_hashCountBuffer, CL_TRUE, 0, sizeof(hashResults), &hashResults);
+				cllog<<"Hash count :"<<hashResults[0]<<";Invalid hash count :"<<hashResults[1]<<";Time = "<<checkTime();
+			}
 
             
 			current.startNonce = startNonce;
@@ -411,7 +417,7 @@ void CLMiner::workLoop()
 			{
 				unsigned long hashResults[2];
 				m_invalidatingQueue.enqueueReadBuffer(m_hashCountBuffer, CL_TRUE, 0, sizeof(hashResults), &hashResults);
-				cllog<<"Hash count :"<<hashResults[0]<<";Invalid hash count :"<<hashResults[1];
+				cllog<<"Hash count :"<<hashResults[0]<<";Invalid hash count :"<<hashResults[1]<<";Time = "<<checkTime();
 				// Make sure the last buffer write has finished --
 				// it reads local variable.
 				m_queue.finish();
