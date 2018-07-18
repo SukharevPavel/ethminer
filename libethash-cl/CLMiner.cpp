@@ -287,7 +287,6 @@ void CLMiner::workLoop()
 	
 	float meanTime = 0;
 	int count = 0;
-	bool isFirst = true;
 	int benchmarkTime = 0;
 
 
@@ -384,10 +383,7 @@ void CLMiner::workLoop()
 			
 			cl::Event event;
 			
-			if (true) {
 			m_queue.enqueueNDRangeKernel(m_searchKernel, cl::NullRange, m_globalWorkSize, m_workgroupSize);
-			isFirst = false;
-			}
             /*m_queue.enqueueNDRangeKernel(m_searchKernel, cl::NullRange, m_globalWorkSize, m_workgroupSize, NULL, &event);
 
             event.wait();
