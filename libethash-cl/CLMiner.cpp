@@ -333,7 +333,7 @@ void CLMiner::workLoop()
 
 				// Update header constant buffer.
 				m_queue.enqueueWriteBuffer(m_header, CL_FALSE, 0, w.header.size, w.header.data());
-				m_queue.enqueueWriteBuffer(m_searchBuffer, CL_FALSE, 0, sizeof(c_invalid), &c_invalid);
+				m_queue.enqueueWriteBuffer(m_searchBuffer, CL_FALSE, 0, sizeof(c_zero), &c_zero);
 
 				wasInvalidHeader = true;
 
@@ -380,7 +380,7 @@ void CLMiner::workLoop()
 				// Ignore results except the first one.
 				nonce = current.startNonce + results[1];
 				// Reset search buffer if any solution found.
-				m_queue.enqueueWriteBuffer(m_searchBuffer, CL_FALSE, 0, sizeof(c_invalid), &c_invalid);
+				m_queue.enqueueWriteBuffer(m_searchBuffer, CL_FALSE, 0, sizeof(c_zero), &c_zero);
 			}
 			// Run the kernel.
 			m_searchKernel.setArg(3, startNonce);
