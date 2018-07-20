@@ -333,7 +333,7 @@ void CLMiner::workLoop()
 
 				// Update header constant buffer.
 				m_queue.enqueueWriteBuffer(m_header, CL_FALSE, 0, w.header.size, w.header.data());
-				m_queue.enqueueWriteBuffer(m_searchBuffer, CL_FALSE, 0, sizeof(c_zero), &c_zero);
+				m_queue.enqueueWriteBuffer(m_searchBuffer, CL_FALSE, 0, sizeof(c_invalid), &c_invalid);
 
 				wasInvalidHeader = true;
 
@@ -380,13 +380,13 @@ void CLMiner::workLoop()
 				// Ignore results except the first one.
 				nonce = current.startNonce + results[1];
 				// Reset search buffer if any solution found.
-				m_queue.enqueueWriteBuffer(m_searchBuffer, CL_FALSE, 0, sizeof(c_zero), &c_zero);
+				m_queue.enqueueWriteBuffer(m_searchBuffer, CL_FALSE, 0, sizeof(c_invalid), &c_invalid);
 			}
 			// Run the kernel.
 			m_searchKernel.setArg(3, startNonce);
 			
 			cl::Event event;
-			
+			dropTimer();
 			m_queue.enqueueNDRangeKernel(m_searchKernel, cl::NullRange, m_globalWorkSize, m_workgroupSize);
             /*m_queue.enqueueNDRangeKernel(m_searchKernel, cl::NullRange, m_globalWorkSize, m_workgroupSize, NULL, &event);
             event.wait();
@@ -421,16 +421,8 @@ void CLMiner::workLoop()
 
 			// Report hash count
 			addHashCount(m_globalWorkSize);
-			
-			if (checkTime()>599000 || checkTime()<1000){			
-				unsigned int hashResults[33];
-				m_invalidatingQueue.enqueueReadBuffer(m_hashCountBuffer, CL_TRUE, 0, sizeof(hashResults), &hashResults);
-				unsigned long validHash = 0;
-				for (int i=0;i<32;i++) {
-					validHash+=hashResults[i];
-				}
-				cllog<<"Hash count :"<<validHash<<";Invalid hash count :"<<hashResults[32]<<";Time = "<<checkTime();
-			}
+			m_queue.finish();
+			cllog<<"Work item count :"<<m_globalWorkSize<<";Time = "<<checkTime();
 
 			if (shouldStop())
 			{

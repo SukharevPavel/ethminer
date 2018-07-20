@@ -119,13 +119,17 @@ private:
 	int curTime;
 
     void initCounter(){
-        initMs = duration_cast< milliseconds >(
-                    system_clock::now().time_since_epoch());
+        dropTimer();
         hashCount = 0;
         lostHashCount = 0;
 		openclCycleCount = 0;
 		changeBlockCount = 0;
     }
+	
+	void dropTimer(){
+		initMs = duration_cast< milliseconds >(
+                    system_clock::now().time_since_epoch());
+	}
 
     int checkTime(){
         milliseconds curMs = duration_cast< milliseconds >(
@@ -146,6 +150,7 @@ private:
 		printf("on line %d for %lu ms\n", num, ms - lastMs);
 		lastMs = ms;
 	};
+	
 
 	bool init(const h256& seed);
 
