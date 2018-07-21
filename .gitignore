@@ -21,6 +21,7 @@ ipch
 *.vcxproj
 *.vcxproj.filters
 *.sln
+*.project
 
 # VIM stuff
 *.swp
@@ -37,6 +38,7 @@ build.*/
 extdep/install
 extdep/download
 /cmake-build-*/
+/cmake/
 
 *.pyc
 

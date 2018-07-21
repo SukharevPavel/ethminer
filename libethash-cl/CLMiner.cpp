@@ -6,6 +6,11 @@
 #include "CLMiner.h"
 #include "CLMiner_kernel_stable.h"
 #include "CLMiner_kernel_experimental.h"
+#include "CLMiner_kernel_ethash_new.h"
+#include "CLMiner_kernel_ethash_genoil.h"
+#include "CLMiner_kernel_ethash_old.h"
+#include "CLMiner_kernel_basic.h"
+
 
 #include <ethash/ethash.hpp>
 #include <boost/dll.hpp>
@@ -284,7 +289,9 @@ void CLMiner::workLoop()
     uint32_t const c_zero = 0;
 
     uint64_t startNonce = 0;
-
+	float meanTime = 0;
+	int count = 0;
+	int benchmarkTime = 0;
     // The work package currently processed by GPU.
     WorkPackage current;
     current.header = h256{1u};
@@ -330,7 +337,7 @@ void CLMiner::workLoop()
                 // Update header constant buffer.
                 m_queue.enqueueWriteBuffer(m_header, CL_FALSE, 0, w.header.size, w.header.data());
                 m_queue.enqueueWriteBuffer(m_searchBuffer, CL_FALSE, 0, sizeof(c_zero), &c_zero);
-
+				wasInvalidHeader = true;
                 m_searchKernel.setArg(0, m_searchBuffer);  // Supply output buffer to kernel.
                 m_searchKernel.setArg(4, target);
 
@@ -353,7 +360,25 @@ void CLMiner::workLoop()
 			search_results results;
 
             m_queue.enqueueReadBuffer(m_searchBuffer, CL_TRUE, 0, sizeof(results), &results);
-
+			
+			if (checkTime() < 600000) {
+				benchmarkTime = getTime();
+				openclCycleCount++;
+				if (wasInvalidHeader) {
+					wasInvalidHeader = false;
+					lostHashCount += m_globalWorkSize;
+					changeBlockCount ++;
+				} else {
+					hashCount += m_globalWorkSize;
+				//	cllog<<"increment " << hashCount;
+				}
+			} else {
+				 cllog<<"benchmark finish; valid hashes = " << hashCount << 
+				 "; invalid hashes = " << lostHashCount<<
+				 "; cycles = "<< openclCycleCount <<
+				 "time = "<<benchmarkTime<<"; count of new work = "<<changeBlockCount; 
+			}
+			
             if (results.count)
             {
                 // Reset search buffer if any solution found.
@@ -463,6 +488,7 @@ bool CLMiner::configureGPU(unsigned _localWorkSize, int _globalWorkSizeMultiplie
     unsigned _platformId, int epoch, unsigned _dagLoadMode, unsigned _dagCreateDevice,
 	bool _noeval, bool _exit)
 {
+<<<<<<< HEAD
 	s_noeval = _noeval;
     s_dagLoadMode = _dagLoadMode;
     s_dagCreateDevice = _dagCreateDevice;
@@ -475,6 +501,47 @@ bool CLMiner::configureGPU(unsigned _localWorkSize, int _globalWorkSizeMultiplie
 	if (_globalWorkSizeMultiplier < 0) {
 		s_adjustWorkSize = true;
 		_globalWorkSizeMultiplier = -_globalWorkSizeMultiplier;
+=======
+	s_dagLoadMode = _dagLoadMode;
+	s_dagCreateDevice = _dagCreateDevice;
+
+	s_platformId = _platformId;
+
+	_localWorkSize = ((_localWorkSize + 7) / 8) * 8;
+	s_workgroupSize = _localWorkSize;
+	s_initialGlobalWorkSize = _globalWorkSizeMultiplier * _localWorkSize;
+
+	uint64_t dagSize = ethash_get_datasize(_currentBlock);
+
+	vector<cl::Platform> platforms = getPlatforms();
+	if (platforms.empty())
+		return false;
+	if (_platformId >= platforms.size())
+		return false;
+
+	vector<cl::Device> devices = getDevices(platforms, _platformId);
+	for (auto const& device: devices)
+	{
+		cl_ulong deviceData = 0;
+		device.getInfo(CL_DEVICE_MAX_WORK_GROUP_SIZE, &deviceData);
+		printf("MAX_WORKGROUP_SIZE = %lu\n", deviceData);
+		device.getInfo(CL_DEVICE_MAX_COMPUTE_UNITS, &deviceData);
+		printf("CL_DEVICE_MAX_COMPUTE_UNITS = %lu\n", deviceData);
+		cl_ulong result = 0;
+		device.getInfo(CL_DEVICE_GLOBAL_MEM_SIZE, &result);
+		if (result >= dagSize)
+		{
+			cnote <<
+				"Found suitable OpenCL device [" << device.getInfo<CL_DEVICE_NAME>()
+												 << "] with " << result << " bytes of GPU memory";
+			return true;
+		}
+
+		cnote <<
+			"OpenCL device " << device.getInfo<CL_DEVICE_NAME>()
+							 << " has insufficient GPU memory." << result <<
+							 " bytes of memory found < " << dagSize << " bytes of memory required";
+>>>>>>> origin/standard
 	}
     s_initialGlobalWorkSize = _globalWorkSizeMultiplier * _localWorkSize;
 

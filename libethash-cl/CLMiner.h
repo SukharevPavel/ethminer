@@ -37,6 +37,7 @@
 #define OPENCL_PLATFORM_AMD     2
 #define OPENCL_PLATFORM_CLOVER  3
 
+using namespace std::chrono;
 
 namespace dev
 {
@@ -88,11 +89,46 @@ public:
 		}
 	}
     static void setNumberIterations(unsigned _iterations) {s_kernelIterations = _iterations <= 1 ? 1 : _iterations;}
+
 protected:
 	void kick_miner() override;
 
 private:
 	void workLoop() override;
+    milliseconds initMs;
+    unsigned long hashCount;
+    unsigned long lostHashCount;
+	unsigned long changeBlockCount;
+	unsigned long openclCycleCount = 0;
+    bool wasInvalidHeader = false;
+	int curTime;
+
+    void initCounter(){
+        initMs = duration_cast< milliseconds >(
+                    system_clock::now().time_since_epoch());
+        hashCount = 0;
+        lostHashCount = 0;
+		openclCycleCount = 0;
+		changeBlockCount = 0;
+    }
+
+    int checkTime(){
+        milliseconds curMs = duration_cast< milliseconds >(
+                    system_clock::now().time_since_epoch());
+		curTime = curMs.count() - initMs.count();
+		return curTime;
+    }
+	
+	int getTime(){
+		return curTime;
+	}
+	
+	/*void printMillis(int num){
+		milliseconds ms = duration_cast< milliseconds >(
+			system_clock::now().time_since_epoch());
+		printf("on line %d for %lu ms\n", num, ms - lastMs);
+		lastMs = ms;
+	};*/
 
 	bool init(int epoch);
 
