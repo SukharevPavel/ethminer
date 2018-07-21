@@ -9,6 +9,7 @@
 #include <libethcore/EthashAux.h>
 #include <libethcore/Miner.h>
 #include <fstream>
+#include <chrono>
 
 #pragma GCC diagnostic push
 #if __GNUC__ >= 6
