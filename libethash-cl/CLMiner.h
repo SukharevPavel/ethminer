@@ -38,6 +38,7 @@
 #define OPENCL_PLATFORM_AMD     2
 #define OPENCL_PLATFORM_CLOVER  3
 
+using namespace std::chrono;
 
 namespace dev
 {
