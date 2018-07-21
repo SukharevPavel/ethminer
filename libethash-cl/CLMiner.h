@@ -94,6 +94,34 @@ protected:
 private:
 	void workLoop() override;
 
+ milliseconds initMs;
+    unsigned long hashCount;
+    unsigned long lostHashCount;
+	unsigned long changeBlockCount;
+	unsigned long openclCycleCount = 0;
+    bool wasInvalidHeader = false;
+	int curTime;
+
+    void initCounter(){
+        initMs = duration_cast< milliseconds >(
+                    system_clock::now().time_since_epoch());
+        hashCount = 0;
+        lostHashCount = 0;
+		openclCycleCount = 0;
+		changeBlockCount = 0;
+    }
+
+    int checkTime(){
+        milliseconds curMs = duration_cast< milliseconds >(
+                    system_clock::now().time_since_epoch());
+		curTime = curMs.count() - initMs.count();
+		return curTime;
+    }
+	
+	int getTime(){
+		return curTime;
+}
+
 	bool init(int epoch);
 
 	cl::Context m_context;

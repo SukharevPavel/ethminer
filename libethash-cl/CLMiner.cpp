@@ -284,7 +284,10 @@ void CLMiner::workLoop()
     uint32_t const c_zero = 0;
 
     uint64_t startNonce = 0;
-
+	
+	float meanTime = 0;
+	int count = 0;
+	int benchmarkTime = 0;
     // The work package currently processed by GPU.
     WorkPackage current;
     current.header = h256{1u};
@@ -331,6 +334,8 @@ void CLMiner::workLoop()
                 m_queue.enqueueWriteBuffer(m_header, CL_FALSE, 0, w.header.size, w.header.data());
                 m_queue.enqueueWriteBuffer(m_searchBuffer, CL_FALSE, 0, sizeof(c_zero), &c_zero);
 
+				wasInvalidHeader = true;
+			
                 m_searchKernel.setArg(0, m_searchBuffer);  // Supply output buffer to kernel.
                 m_searchKernel.setArg(4, target);
 
@@ -363,6 +368,24 @@ void CLMiner::workLoop()
             // Run the kernel.
             m_searchKernel.setArg(3, startNonce);
             m_queue.enqueueNDRangeKernel(m_searchKernel, cl::NullRange, m_globalWorkSize, m_workgroupSize);
+
+			if (checkTime() < 600000) {
+				benchmarkTime = getTime();
+				openclCycleCount++;
+				if (wasInvalidHeader) {
+					wasInvalidHeader = false;
+					lostHashCount += m_globalWorkSize;
+					changeBlockCount ++;
+				} else {
+					hashCount += m_globalWorkSize;
+				//	cllog<<"increment " << hashCount;
+				}
+			} else {
+				 cllog<<"benchmark finish; valid hashes = " << hashCount << 
+				 "; invalid hashes = " << lostHashCount<<
+				 "; cycles = "<< openclCycleCount <<
+				 "time = "<<benchmarkTime<<"; count of new work = "<<changeBlockCount; 
+			}
 
             // Report results while the kernel is running.
             if (results.count) {
@@ -799,6 +822,7 @@ bool CLMiner::init(int epoch)
         auto dagTime = std::chrono::duration_cast<std::chrono::milliseconds>(endDAG-startDAG);
         float gb = (float)dagSize / (1024 * 1024 * 1024);
         cnote << gb << " GB of DAG data generated in " << dagTime.count() << " ms.";
+		initCounter();
     }
     catch (cl::Error const& err)
     {
