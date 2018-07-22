@@ -351,7 +351,7 @@ void CLMiner::workLoop()
 					m_queue.enqueueWriteBuffer(m_searchBuffer, CL_FALSE, 0, sizeof(c_zero), &c_zero);
 			//		cllog<<"search buffer invalidated";
 					m_searchKernel.setArg(0, m_searchBuffer);  // Supply output buffer to kernel.
-					m_searchKernel.setArg(4, target);
+					m_searchKernel.setArg(5, target);
 					
 					current = w;        // kernel now processing newest work
 					// FIXME: This logic should be move out of here.
@@ -382,7 +382,7 @@ void CLMiner::workLoop()
 
 			}
 			// Run the kernel.
-			m_searchKernel.setArg(3, startNonce);
+			m_searchKernel.setArg(4, startNonce);
 
 		//	cllog << "try to send NDRangeKernel";
 		//	printMillis(388);
@@ -689,10 +689,10 @@ bool CLMiner::init(const h256& seed)
 				break;
 		}
 		
-		
+		addDefinition(code, "WORKSIZE", m_workgroupSize);
 		addDefinition(code, "GROUP_SIZE", m_workgroupSize);
-		addDefinition(code, "DAG_SIZE", dagSize128);
 		addDefinition(code, "LIGHT_SIZE", lightSize64);
+		addDefinition(code, "DAG_SIZE", dagSize128);
 		addDefinition(code, "ACCESSES", ETHASH_ACCESSES);
 		addDefinition(code, "MAX_OUTPUTS", c_maxSearchResults);
 		addDefinition(code, "PLATFORM", platformId);
@@ -733,8 +733,8 @@ bool CLMiner::init(const h256& seed)
 			cllog << "Creating DAG buffer, size" << dagSize;
 			m_dag = cl::Buffer(m_context, CL_MEM_READ_ONLY, dagSize);
 			cllog << "Loading kernels";
-			m_searchKernel = cl::Kernel(program, "ethash_search");
-			m_dagKernel = cl::Kernel(program, "ethash_calculate_dag_item");
+			m_searchKernel = cl::Kernel(program, "search");
+			m_dagKernel = cl::Kernel(program, "GenerateDAG");
 			cllog << "Writing light cache buffer";
 			m_queue.enqueueWriteBuffer(m_light, CL_TRUE, 0, light->data().size(), light->data().data());
 			
@@ -750,12 +750,13 @@ bool CLMiner::init(const h256& seed)
 
 		m_searchKernel.setArg(1, m_header);
 		m_searchKernel.setArg(2, m_dag);
-		m_searchKernel.setArg(5, ~0u);  // Pass this to stop the compiler unrolling the loops.
+		m_searchKernel.setArg(3, dagSize128);
+		m_searchKernel.setArg(6, ~0u);// Pass this to stop the compiler unrolling the loops.
+		m_searchKernel.setArg(7, 1);  
 
 		// create mining buffers
 		ETHCL_LOG("Creating mining buffer");
 		m_searchBuffer = cl::Buffer(m_context, CL_MEM_WRITE_ONLY, (c_maxSearchResults + 1) * sizeof(int32_t));
-		m_hashCountBuffer = cl::Buffer(m_context, CL_MEM_WRITE_ONLY, 33 * sizeof(unsigned int));
 
 		uint32_t const work = (uint32_t)(dagSize / sizeof(node));
 		uint32_t fullRuns = work / m_globalWorkSize;
@@ -763,23 +764,39 @@ bool CLMiner::init(const h256& seed)
 		if (restWork > 0) fullRuns++;
 
 		m_dagKernel.setArg(1, m_light);
-		m_dagKernel.setArg(2, m_dag);
-		m_dagKernel.setArg(3, ~0u);
+        m_dagKernel.setArg(2, m_dag);
+        m_dagKernel.setArg(3, (uint32_t)(light->data().size() / 64));
+        m_dagKernel.setArg(4, ~0u);
 
-		auto startDAG = std::chrono::steady_clock::now();
-		for (uint32_t i = 0; i < fullRuns; i++)
+        const uint32_t workItems = dagSize128 * 2;  // GPU computes partial 512-bit DAG items.
+
+        auto startDAG = std::chrono::steady_clock::now();
+		uint32_t start;
+        for (start = 0; start <= workItems - m_globalWorkSize; start += m_globalWorkSize)
+        {
+            m_dagKernel.setArg(0, start);
+            m_queue.enqueueNDRangeKernel(m_dagKernel, cl::NullRange, m_globalWorkSize, m_workgroupSize);
+            m_queue.finish();
+        }
+		if (start < workItems)
 		{
-			m_dagKernel.setArg(0, i * m_globalWorkSize);
-			m_queue.enqueueNDRangeKernel(m_dagKernel, cl::NullRange, m_globalWorkSize, m_workgroupSize);
-			m_queue.finish();
+			uint32_t groupsLeft = workItems - start;
+			groupsLeft = (groupsLeft + m_workgroupSize - 1) / m_workgroupSize;
+            m_dagKernel.setArg(0, start);
+            m_queue.enqueueNDRangeKernel(m_dagKernel, cl::NullRange, groupsLeft * m_workgroupSize, m_workgroupSize);
+            m_queue.finish();
 		}
-		auto endDAG = std::chrono::steady_clock::now();
+        auto endDAG = std::chrono::steady_clock::now();
+
+        auto dagTime = std::chrono::duration_cast<std::chrono::milliseconds>(endDAG-startDAG);
+        float gb = (float)dagSize / (1024 * 1024 * 1024);
+        cnote << gb << " GB of DAG data generated in " << dagTime.count() << " ms.";
+		
+		
+		m_hashCountBuffer = cl::Buffer(m_context, CL_MEM_WRITE_ONLY, 33 * sizeof(unsigned int));
 		cl_uint const c_zero = 0;
 		m_queue.enqueueFillBuffer(m_hashCountBuffer, c_zero,0, sizeof(c_zero) * 33);
-		m_searchKernel.setArg(6,m_hashCountBuffer);
-		auto dagTime = std::chrono::duration_cast<std::chrono::milliseconds>(endDAG-startDAG);
-		float gb = (float)dagSize / (1024 * 1024 * 1024);
-		cnote << gb << " GB of DAG data generated in" << dagTime.count() << "ms.";
+		m_searchKernel.setArg(8,m_hashCountBuffer);
 		initCounter();
 	}
 	catch (cl::Error const& err)
