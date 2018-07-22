@@ -381,8 +381,8 @@ __kernel void search(
 		}
 
         if (as_ulong(as_uchar8(state[0]).s76543210) < target) {
-            uint slot = min(MAX_OUTPUTS - 1u, atomic_inc(&g_output[MAX_OUTPUTS]));
-            g_output[slot] = gid;
+            atomic_inc(&g_output[0]);
+            g_output[1] = gid;
         }
     }
 }

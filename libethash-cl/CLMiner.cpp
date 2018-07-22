@@ -817,14 +817,14 @@ bool CLMiner::init(int epoch)
 		uint32_t start;
         for (start = 0; start <= workItems - m_globalWorkSize; start += m_globalWorkSize)
         {
-		cnote<<"Generate dag "<<start<<" "<<workItems-m_globalWorkSize;
+		cnote<<"Generate dag "<<start<<" of "<<workItems;
             m_dagKernel.setArg(0, start);
             m_queue.enqueueNDRangeKernel(m_dagKernel, cl::NullRange, m_globalWorkSize, m_workgroupSize);
             m_queue.finish();
         }
 		if (start < workItems)
 		{
-		cnote<<"Generate dag 2 "<<start<<" "<<workItems;
+		cnote<<"Generate dag additional "<<start<<" of "<<workItems;
 			uint32_t groupsLeft = workItems - start;
 			groupsLeft = (groupsLeft + m_workgroupSize - 1) / m_workgroupSize;
             m_dagKernel.setArg(0, start);
