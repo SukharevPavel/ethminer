@@ -254,7 +254,7 @@ std::vector<cl::Device> getDevices(std::vector<cl::Platform> const& _platforms, 
 unsigned CLMiner::s_platformId = 0;
 unsigned CLMiner::s_numInstances = 0;
 vector<int> CLMiner::s_devices(MAX_MINERS, -1);
-bool CLMiner::s_noBinary = false;
+bool CLMiner::s_noBinary = true;
 
 CLMiner::CLMiner(FarmFace& _farm, unsigned _index):
     Miner("cl-", _farm, _index)
@@ -269,15 +269,20 @@ CLMiner::~CLMiner()
 void CLMiner::workLoop()
 {
     // Memory for zero-ing buffers. Cannot be static because crashes on macOS.
-    uint32_t const c_zero = 0;
+    int32_t const c_zero = 0;
+	int32_t const c_unread = -1;
+	int32_t const c_invalid = -2;
 
     uint64_t startNonce = 0;
 
     // The work package currently processed by GPU.
     WorkPackage current;
     current.header = h256{1u};
-
+	WorkPackage w = work();
+	
+	bool first = true;
     try {
+		 
         while (!shouldStop())
         {
             if (is_mining_paused())
@@ -287,19 +292,31 @@ void CLMiner::workLoop()
                 continue;
             }
 
-            const WorkPackage w = work();
+            int32_t results[c_maxSearchResults + 1];
+			if (!first) {
+			results[0] = c_unread;
+			// Read results.
+			// TODO: could use pinned host pointer instead.
+		//	cllog << "try to read results";
+			m_queue.enqueueReadBuffer(m_searchBuffer[0], CL_FALSE, 0, sizeof(results), &results);
+			}
+		//	cllog << "waiting for processing or new header";
+			while ((results[0] == c_unread || first )) {
+				first = false;
+				w = work();
+				if (current.header != w.header)
+				{	
+					// New work received. Update GPU data.
+					while (!w)
+					{
+						cllog << "No work. Pause for 3 s.";
+						std::this_thread::sleep_for(std::chrono::seconds(3));
+						w = work();
+					}
 
-            if (current.header != w.header)
-            {
-                // New work received. Update GPU data.
-                if (!w)
-                {
-                    cllog << "No work. Pause for 3 s.";
-                    std::this_thread::sleep_for(std::chrono::seconds(3));
-                    continue;
-                }
+					//cllog << "New work: header" << w.header << "target" << w.boundary.hex();
 
-                if (current.epoch != w.epoch)
+					if (current.epoch != w.epoch)
                 {
                     if (s_dagLoadMode == DAG_LOAD_MODE_SEQUENTIAL)
                     {
@@ -311,74 +328,108 @@ void CLMiner::workLoop()
                     init(w.epoch);
                 }
 
-                // Upper 64 bits of the boundary.
-                const uint64_t target = (uint64_t)(u64)((u256)w.boundary >> 192);
-                assert(target > 0);
+					// Upper 64 bits of the boundary.
+					const uint64_t target = (uint64_t)(u64)((u256)w.boundary >> 192);
+					assert(target > 0);
+			//		cllog<<"switch header";
 
-                // Update header constant buffer.
-                m_queue.enqueueWriteBuffer(m_header[0], CL_FALSE, 0, w.header.size, w.header.data());
-                m_queue.enqueueWriteBuffer(m_searchBuffer[0], CL_FALSE, c_maxSearchResults * sizeof(uint32_t), sizeof(c_zero), &c_zero);
+					// Update header constant buffer.
+					
+					m_invalidatingQueue.enqueueWriteBuffer(m_searchBuffer[0], CL_TRUE, 0, sizeof(c_invalid), &c_invalid);
+					
+					m_queue.enqueueWriteBuffer(m_header[0], CL_FALSE, 0, w.header.size, w.header.data());
+					m_queue.enqueueWriteBuffer(m_searchBuffer[0], CL_FALSE, 0, sizeof(c_zero), &c_zero);
+			//		cllog<<"search buffer invalidated";
+					m_searchKernel.setArg(0, m_searchBuffer[0]);  // Supply output buffer to kernel.
+					m_searchKernel.setArg(4, target);
+					
+					current = w;        // kernel now processing newest work
+					// FIXME: This logic should be move out of here.
+					if (w.exSizeBits >= 0)
+					{
+						// This can support up to 2^c_log2MaxMiners devices.
+						startNonce = w.startNonce | ((uint64_t)index << (64 - LOG2_MAX_MINERS - w.exSizeBits));
+					}
+					else
+						startNonce = get_start_nonce();
 
-                if (w.exSizeBits >= 0)
-                {
-                    // This can support up to 2^c_log2MaxMiners devices.
-                    startNonce = w.startNonce | ((uint64_t)index << (64 - LOG2_MAX_MINERS - w.exSizeBits));
-                }
-                else
-                    startNonce = get_start_nonce();
-
-                if (g_logVerbosity > 5)
+					if (g_logVerbosity > 5)
 					cllog << "Switch time: "
                     	<< std::chrono::duration_cast<std::chrono::milliseconds>
 							(std::chrono::high_resolution_clock::now() - workSwitchStart).count() << " ms.";
 
-                m_searchKernel.setArg(0, m_searchBuffer[0]);  // Supply output buffer to kernel.
-                m_searchKernel.setArg(1, m_header[0]);  // Supply header buffer to kernel.
-                m_searchKernel.setArg(2, m_dag[0]);  // Supply DAG buffer to kernel.
-                m_searchKernel.setArg(3, m_dagItems);
-                m_searchKernel.setArg(5, target);
-                m_searchKernel.setArg(6, 0xffffffff);
-                m_searchKernel.setArg(7, 1);
-            }
-
-            // Read results.
-			uint32_t count, gids[c_maxSearchResults];
-
-            m_queue.enqueueReadBuffer(m_searchBuffer[0], CL_TRUE, c_maxSearchResults * sizeof(uint32_t), sizeof(count), &count);
-
-            if (count)
-            {
-            	m_queue.enqueueReadBuffer(m_searchBuffer[0], CL_TRUE, 0, count * sizeof(uint32_t), gids);
-                // Reset search buffer if any solution found.
-                m_queue.enqueueWriteBuffer(m_searchBuffer[0], CL_FALSE, c_maxSearchResults * sizeof(uint32_t), sizeof(c_zero), &c_zero);
-            }
-
-            // Run the kernel.
-            m_searchKernel.setArg(4, startNonce);
-            m_queue.enqueueNDRangeKernel(m_searchKernel, cl::NullRange, m_globalWorkSize, m_workgroupSize);
-
-            // Report results while the kernel is running.
-            for (uint32_t i = 0; i < count; i++) {
+					m_searchKernel.setArg(0, m_searchBuffer[0]);  // Supply output buffer to kernel.
+					m_searchKernel.setArg(1, m_header[0]);  // Supply header buffer to kernel.
+					m_searchKernel.setArg(2, m_dag[0]);  // Supply DAG buffer to kernel.
+					m_searchKernel.setArg(3, m_dagItems);
+					m_searchKernel.setArg(5, target);
+					m_searchKernel.setArg(6, 0xffffffff);
+					m_searchKernel.setArg(7, 1);
+						
+						
 				
-                uint64_t nonce = current.startNonce + gids[i];
+				}
+			}
+			
+		//	cllog << "send invalidation of search buffer";
+			uint64_t nonce = 0;
+			if (results[0] > 0)
+			{
+\
+				// Ignore results except the first one.
+				nonce = current.startNonce + results[1];
+				// Reset search buffer if any solution found.
+				m_queue.enqueueWriteBuffer(m_searchBuffer[0], CL_FALSE, 0, sizeof(c_zero), &c_zero);
+
+			}
+			// Run the kernel.
+			m_searchKernel.setArg(4, startNonce);
+
+		//	cllog << "try to send NDRangeKernel";
+		//	printMillis(388);
+			m_queue.enqueueNDRangeKernel(m_searchKernel, cl::NullRange, m_globalWorkSize, m_workgroupSize);
+			//cllog << "send NDRangeKernel";
+			if (nonce != 0) {
                 Result r = EthashAux::eval(current.epoch, current.header, nonce);
-                if (r.value <= current.boundary)
+                if (r.value < current.boundary) {
                     farm.submitProof(Solution{nonce, r.mixHash, current, current.header != w.header});
-                else {
-                    farm.failedSolution();
-                    cwarn << "GPU gave incorrect result!";
                 }
-            }
+				else {
+					farm.failedSolution();
+					cwarn << "FAILURE: GPU gave incorrect result!";
+				}
+			}
+			
+				if (checkTime()>599000 || checkTime()<1000){			
+				unsigned int hashResults[33];
+				m_invalidatingQueue.enqueueReadBuffer(m_hashCountBuffer, CL_TRUE, 0, sizeof(hashResults), &hashResults);
+				unsigned long validHash = 0;
+				for (int i=0;i<32;i++) {
+					validHash+=hashResults[i];
+				}
+				cllog<<"Hash count :"<<validHash<<";Invalid hash count :"<<hashResults[32]<<";Time = "<<checkTime();
+			}
 
-            current = w;        // kernel now processing newest work
-            current.startNonce = startNonce;
-            // Increase start nonce for following kernel execution.
-            startNonce += m_globalWorkSize;
+            
+			current.startNonce = startNonce;
+			// Increase start nonce for following kernel execution.
+			startNonce += m_globalWorkSize;
 
-            // Report hash count
-            addHashCount(m_globalWorkSize);
+			// Report hash count
+			addHashCount(m_globalWorkSize);
+
+
+
 
         }
+		
+		unsigned int hashResults[33];
+		m_invalidatingQueue.enqueueReadBuffer(m_hashCountBuffer, CL_TRUE, 0, sizeof(hashResults), &hashResults);
+		unsigned long validHash = 0;
+		for (int i=0;i<32;i++) {
+				validHash+=hashResults[i];
+		}
+		cllog<<"Hash count :"<<validHash<<";Invalid hash count :"<<hashResults[32]<<";Time = "<<checkTime();
         m_queue.finish();
     }
     catch (cl::Error const& _e)
@@ -454,7 +505,8 @@ bool CLMiner::configureGPU(unsigned _localWorkSize, unsigned _globalWorkSizeMult
     s_dagLoadMode = _dagLoadMode;
     s_dagCreateDevice = _dagCreateDevice;
     s_exit = _exit;
-	s_noBinary = _nobinary;
+	//this won't work anyway
+	//s_noBinary = _nobinary;
 
 	if (_noeval)
 		cwarn << "--no-eval not yet supported for AMD.";
@@ -590,6 +642,7 @@ bool CLMiner::init(int epoch)
         // create context
         m_context = cl::Context(vector<cl::Device>(&device, &device + 1));
         m_queue = cl::CommandQueue(m_context, device);
+		m_invalidatingQueue = cl::CommandQueue(m_context, device);
 
         m_workgroupSize = s_workgroupSize;
         m_globalWorkSize = s_initialGlobalWorkSize;
@@ -764,12 +817,14 @@ bool CLMiner::init(int epoch)
 		uint32_t start;
         for (start = 0; start <= workItems - m_globalWorkSize; start += m_globalWorkSize)
         {
+		cnote<<"Generate dag "<<start<<" "<<workItems-m_globalWorkSize;
             m_dagKernel.setArg(0, start);
             m_queue.enqueueNDRangeKernel(m_dagKernel, cl::NullRange, m_globalWorkSize, m_workgroupSize);
             m_queue.finish();
         }
 		if (start < workItems)
 		{
+		cnote<<"Generate dag 2 "<<start<<" "<<workItems;
 			uint32_t groupsLeft = workItems - start;
 			groupsLeft = (groupsLeft + m_workgroupSize - 1) / m_workgroupSize;
             m_dagKernel.setArg(0, start);
@@ -781,6 +836,16 @@ bool CLMiner::init(int epoch)
         auto dagTime = std::chrono::duration_cast<std::chrono::milliseconds>(endDAG-startDAG);
         float gb = (float)dagSize / (1024 * 1024 * 1024);
         cnote << gb << " GB of DAG data generated in " << dagTime.count() << " ms.";
+		cl_uint const c_zero = 0;
+		
+		//zeroing the hash count
+		
+		m_hashCountBuffer = cl::Buffer(m_context, CL_MEM_WRITE_ONLY, 33 * sizeof(unsigned int));
+		m_queue.enqueueFillBuffer(m_hashCountBuffer, c_zero,0, sizeof(c_zero) * 33);
+		m_queue.finish();
+		m_searchKernel.setArg(8,m_hashCountBuffer);
+		initCounter();
+		
     }
     catch (cl::Error const& err)
     {

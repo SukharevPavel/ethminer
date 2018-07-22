@@ -246,12 +246,16 @@ __kernel void search(
     ulong start_nonce,
     ulong target,
     uint isolate,
-    uint itereations
+    uint itereations,
+	__global volatile uint* g_hashCount
 )
 {
     __global hash128_t const* g_dag = (__global hash128_t const*) _g_dag;
 
     for (volatile int iter = 0; iter < itereations; ++iter) {
+		if (g_output[0]!=0) {
+			return;
+		}
         const uint gid = get_global_id(0) + iter * get_num_groups(0) * WORKSIZE;
         const uint thread_id = get_local_id(0) % 4;
         const uint hash_id = get_local_id(0) / 4;
@@ -362,6 +366,19 @@ __kernel void search(
             state[23] = (uint2)(0);
             state[24] = (uint2)(0);
         }
+		
+		//count hashes
+		if (g_output[0]==0) {
+			//valid hash
+			//since I can't use atomic_inc(long), I made this workaround with 32 ints
+			//it is fine while I make only 10-min length tests
+			//for the real purpose it is possible to drop hashCount buffer every cycle,
+			//but I don't know how it would harm the performance
+			atomic_inc(&g_hashCount[gid%32]);
+		} else if (g_output[0] == -2) {
+			//invalid hash
+			atomic_inc(&g_hashCount[32]);
+		}
 
         if (as_ulong(as_uchar8(state[0]).s76543210) < target) {
             uint slot = min(MAX_OUTPUTS - 1u, atomic_inc(&g_output[MAX_OUTPUTS]));

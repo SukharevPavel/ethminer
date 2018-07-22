@@ -9,6 +9,7 @@
 #include <libethcore/EthashAux.h>
 #include <libethcore/Miner.h>
 #include <fstream>
+#include <chrono>
 
 #pragma GCC diagnostic push
 #if __GNUC__ >= 6
@@ -37,6 +38,7 @@
 #define OPENCL_PLATFORM_AMD     2
 #define OPENCL_PLATFORM_CLOVER  3
 
+using namespace std::chrono;
 
 namespace dev
 {
@@ -99,6 +101,38 @@ private:
 	static unsigned s_workgroupSize;
 	/// The initial global work size for the searches
 	static unsigned s_initialGlobalWorkSize;
+	
+	milliseconds initMs;
+	int curTime;
+	
+	cl::Buffer m_hashCountBuffer;
+	
+	cl::CommandQueue m_invalidatingQueue;
+
+    void initCounter(){
+        initMs = duration_cast< milliseconds >(
+                    system_clock::now().time_since_epoch());
+    }
+
+    int checkTime(){
+        milliseconds curMs = duration_cast< milliseconds >(
+                    system_clock::now().time_since_epoch());
+		curTime = curMs.count() - initMs.count();
+		return curTime;
+    }
+	
+	int getTime(){
+		return curTime;
+	}
+	
+	milliseconds lastMs;
+	
+	void printMillis(int num){
+		milliseconds ms = duration_cast< milliseconds >(
+			system_clock::now().time_since_epoch());
+		printf("on line %d for %lu ms\n", num, ms - lastMs);
+		lastMs = ms;
+	};
 
 };
 
