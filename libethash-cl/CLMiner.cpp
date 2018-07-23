@@ -299,7 +299,7 @@ void CLMiner::workLoop()
 			// TODO: could use pinned host pointer instead.
 		//	cllog << "try to read results";
 			m_queue.enqueueReadBuffer(m_searchBuffer[0], CL_TRUE, 0, sizeof(results), &results);
-			cllog<<"Time:<<"<<checkTime();
+			cllog<<"Time:"<<checkTime();
 			} else {
 				while (!isInited)
 					{
