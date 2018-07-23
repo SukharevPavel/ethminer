@@ -762,12 +762,14 @@ bool CLMiner::init(int epoch)
 
         auto startDAG = std::chrono::steady_clock::now();
 		uint32_t start;
-        for (start = 0; start <= workItems - m_globalWorkSize; start += m_globalWorkSize)
-        {
-            m_dagKernel.setArg(0, start);
-            m_queue.enqueueNDRangeKernel(m_dagKernel, cl::NullRange, m_globalWorkSize, m_workgroupSize);
-            m_queue.finish();
-        }
+		if (workItems >= m_globalWorkSize) {
+	        for (start = 0; start <= workItems - m_globalWorkSize; start += m_globalWorkSize)
+	        {
+	            m_dagKernel.setArg(0, start);
+	            m_queue.enqueueNDRangeKernel(m_dagKernel, cl::NullRange, m_globalWorkSize, m_workgroupSize);
+	            m_queue.finish();
+	        }
+    	}
 		if (start < workItems)
 		{
 			uint32_t groupsLeft = workItems - start;
