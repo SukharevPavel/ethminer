@@ -108,6 +108,7 @@ private:
 	WorkPackage current;
 	uint64_t startNonce;
 	bool isInited = false;
+	bool isInitializing  = false;
 	
 	cl::Buffer m_hashCountBuffer;
 	

@@ -327,7 +327,7 @@ void CLMiner::workLoop()
 			if (nonce != 0) {
                 Result r = EthashAux::eval(current.epoch, current.header, nonce);
                 if (r.value < current.boundary) {
-                    farm.submitProof(Solution{nonce, r.mixHash, current, current.header != w.header});
+                    farm.submitProof(Solution{nonce, r.mixHash, current, false});
                 }
 				else {
 					farm.failedSolution();
@@ -376,9 +376,10 @@ void CLMiner::workLoop()
 }
 
 void CLMiner::kick_miner() {
+	
 	int32_t const c_zero = 0;
 	int32_t const c_invalid = -2;
-	w = work();
+	WorkPackage w = work();
 		if (current.header != w.header)
 			{	
 					// New work received. Update GPU data.
@@ -388,15 +389,18 @@ void CLMiner::kick_miner() {
 
 			if (current.epoch != w.epoch)
                 {
-                    if (s_dagLoadMode == DAG_LOAD_MODE_SEQUENTIAL)
-                    {
-                        while (s_dagLoadIndex < index)
-                            this_thread::sleep_for(chrono::seconds(1));
-                        ++s_dagLoadIndex;
-                    }
-
-                    init(w.epoch);
-                }
+					if (!isInitializing) {
+						if (s_dagLoadMode == DAG_LOAD_MODE_SEQUENTIAL)
+						{
+							while (s_dagLoadIndex < index)
+								this_thread::sleep_for(chrono::seconds(1));
+							++s_dagLoadIndex;
+						}
+						isInitializing = true;
+						init(w.epoch);
+						isInitializing = false;
+					}
+			}
 
 					// Upper 64 bits of the boundary.
 					const uint64_t target = (uint64_t)(u64)((u256)w.boundary >> 192);
