@@ -1,2 +1,0 @@
-/usr/bin/ar qc libapicore.a  CMakeFiles/apicore.dir/ApiServer.cpp.o CMakeFiles/apicore.dir/httpServer.cpp.o
-/usr/bin/ranlib libapicore.a
