@@ -367,7 +367,7 @@ __kernel void search(
 		
 		//count hashes
 		//uint32_t should be enough for one cycle
-		//if g_output[MAX_OUTPUTS]==0xffffffff then it is a stale work
+		//if g_output[MAX_OUTPUTS]==CL_INVALID(0xffffffff) then it is a stale work
 		if (g_output[MAX_OUTPUTS]!=0xffffffff) {
 			atomic_inc(&g_output[MAX_OUTPUTS+1]);
 		}
