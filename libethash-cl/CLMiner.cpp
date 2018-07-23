@@ -263,6 +263,7 @@ CLMiner::CLMiner(FarmFace& _farm, unsigned _index):
 CLMiner::~CLMiner()
 {
     stopWorking();
+    kick_miner();
 }
 
 void CLMiner::workLoop()
@@ -298,10 +299,9 @@ void CLMiner::workLoop()
 			// TODO: could use pinned host pointer instead.
 		//	cllog << "try to read results";
 			m_queue.enqueueReadBuffer(m_searchBuffer[0], CL_TRUE, 0, sizeof(results), &results);
-			} /*else {
-				first = false;
+			} else {
 				kick_miner();
-			}*/
+			}
 		//	
 		//	cllog << "send invalidation of search buffer";
 			uint64_t nonce = 0;
@@ -318,7 +318,7 @@ void CLMiner::workLoop()
 			m_searchKernel.setArg(4, startNonce);
 
 			m_queue.enqueueNDRangeKernel(m_searchKernel, cl::NullRange, m_globalWorkSize, m_workgroupSize);
-			
+			first = false;
 			
 			if (nonce != 0) {
                 Result r = EthashAux::eval(current.epoch, current.header, nonce);
