@@ -302,7 +302,7 @@ void CLMiner::workLoop()
 			if (!isFirst) {
 				m_queue.enqueueReadBuffer(m_searchBuffer[0], CL_TRUE, c_maxSearchResults * sizeof(uint32_t), sizeof(count), &count);
 			}
-			isFIrst = false;
+			isFirst = false;
 
 			
 			uint32_t solutionCount = count[0];
