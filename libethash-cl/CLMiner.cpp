@@ -300,7 +300,11 @@ void CLMiner::workLoop()
 		//	cllog << "try to read results";
 			m_queue.enqueueReadBuffer(m_searchBuffer[0], CL_TRUE, 0, sizeof(results), &results);
 			} else {
-				kick_miner();
+				while (!isInited)
+					{
+						cllog << "Not inited yet, wait 3 seconds";
+						std::this_thread::sleep_for(std::chrono::seconds(3));
+					}
 			}
 		//	
 		//	cllog << "send invalidation of search buffer";
@@ -375,19 +379,14 @@ void CLMiner::kick_miner() {
 	int32_t const c_zero = 0;
 	int32_t const c_invalid = -2;
 	w = work();
-				if (current.header != w.header)
-				{	
+		if (current.header != w.header)
+			{	
 					// New work received. Update GPU data.
-					while (!w)
-					{
-						cllog << "No work. Pause for 3 s.";
-						std::this_thread::sleep_for(std::chrono::seconds(3));
-						w = work();
-					}
+					
 
 					//cllog << "New work: header" << w.header << "target" << w.boundary.hex();
 
-					if (current.epoch != w.epoch)
+			if (current.epoch != w.epoch)
                 {
                     if (s_dagLoadMode == DAG_LOAD_MODE_SEQUENTIAL)
                     {
@@ -842,6 +841,7 @@ bool CLMiner::init(int epoch)
 		m_queue.finish();
 		m_searchKernel.setArg(8,m_hashCountBuffer);
 		initCounter();
+		isInited = true;
 		
     }
     catch (cl::Error const& err)
