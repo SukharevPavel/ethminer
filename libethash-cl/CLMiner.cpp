@@ -826,7 +826,6 @@ bool CLMiner::init(int epoch)
 				m_queue.finish();
 			}
 		}
-		}
 		if (start < workItems)
 		{
 		cnote<<"Generate dag additional "<<start<<" of "<<workItems;
