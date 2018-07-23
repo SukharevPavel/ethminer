@@ -299,8 +299,10 @@ __kernel void search(
 
         for (volatile int pass = 0; pass < 2; ++pass) {
             KECCAK_PROCESS(state, select(5, 12, pass != 0), select(8, 1, pass != 0), isolate);
-            if (pass > 0)
+            if (pass > 0) {
+						//count hashes
                 break;
+			}
 
             uint init0;
             uint8 mix;
@@ -366,8 +368,14 @@ __kernel void search(
             state[23] = (uint2)(0);
             state[24] = (uint2)(0);
         }
-		
-		//count hashes
+
+        if (as_ulong(as_uchar8(state[0]).s76543210) < target) {
+            atomic_inc(&g_output[0]);
+            g_output[1] = gid;
+        }
+    }
+	
+	//count hashes
 		if (g_output[0]==0) {
 			//valid hash
 			//since I can't use atomic_inc(long), I made this workaround with 32 ints
@@ -379,12 +387,6 @@ __kernel void search(
 			//invalid hash
 			atomic_inc(&g_hashCount[32]);
 		}
-
-        if (as_ulong(as_uchar8(state[0]).s76543210) < target) {
-            atomic_inc(&g_output[0]);
-            g_output[1] = gid;
-        }
-    }
 }
 
 typedef union _Node {
