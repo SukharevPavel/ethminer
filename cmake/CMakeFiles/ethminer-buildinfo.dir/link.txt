@@ -1,2 +1,0 @@
-/usr/bin/ar qc libethminer-buildinfo.a  CMakeFiles/ethminer-buildinfo.dir/ethminer-buildinfo.c.o
-/usr/bin/ranlib libethminer-buildinfo.a
