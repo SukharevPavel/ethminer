@@ -315,7 +315,7 @@ void CLMiner::workLoop()
                 const uint64_t target = (uint64_t)(u64)((u256)w.boundary >> 192);
                 assert(target > 0);
 				
-				isObsolete = true;
+				wasInvalidHeader = true;
 				
                 // Update header constant buffer.
                 m_queue.enqueueWriteBuffer(m_header[0], CL_FALSE, 0, w.header.size, w.header.data());
