@@ -307,7 +307,6 @@ void CLMiner::workLoop()
 			
 			uint32_t solutionCount = count[0];
 			uint32_t calculatedHashCount = count[1];
-                        cllog<<"solution count:"<<solutionCount<<";calculate hash count:"<<calculatedHashCount; 
             if (solutionCount && solutionCount != C_INVALID)
             {
             	m_queue.enqueueReadBuffer(m_searchBuffer[0], CL_TRUE, 0, solutionCount * sizeof(uint32_t), gids);
@@ -322,6 +321,7 @@ void CLMiner::workLoop()
             m_queue.enqueueNDRangeKernel(m_searchKernel, cl::NullRange, m_globalWorkSize, m_workgroupSize);
 
             // Report results while the kernel is running.
+            if (solutionCount != C_INVALID) {
             for (uint32_t i = 0; i < solutionCount; i++) {
 		
                 uint64_t nonce = current.startNonce + gids[i];
@@ -334,6 +334,7 @@ void CLMiner::workLoop()
                     farm.failedSolution();
                     cwarn << "GPU gave incorrect result!";
                 }
+}
 }
 
             
@@ -395,7 +396,7 @@ void CLMiner::kick_miner() {
 
 					// Update header constant buffer.				
 					m_queue.enqueueWriteBuffer(m_header[0], CL_FALSE, 0, w.header.size, w.header.data());
-					m_queue.enqueueWriteBuffer(m_searchBuffer[0], CL_FALSE, 0, sizeof(c_zero), &c_zero);
+                                        m_queue.enqueueFillBuffer(m_searchBuffer[0], c_zero,c_maxSearchResults * sizeof(uint32_t), sizeof(c_zero) * 2);
 					
 					current = w;        // kernel now processing newest work
 					if (w.exSizeBits >= 0)
