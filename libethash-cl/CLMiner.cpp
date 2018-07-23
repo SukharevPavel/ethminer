@@ -278,9 +278,7 @@ void CLMiner::workLoop()
     // The work package currently processed by GPU.
     
     current.header = h256{1u};
-	
-	kick_miner();
-	
+		
 	bool first = true;
     try {
 		 
@@ -301,6 +299,8 @@ void CLMiner::workLoop()
 			// TODO: could use pinned host pointer instead.
 		//	cllog << "try to read results";
 			m_queue.enqueueReadBuffer(m_searchBuffer[0], CL_TRUE, 0, sizeof(results), &results);
+			} else {
+				kick_miner();
 			}
 		//	
 		//	cllog << "send invalidation of search buffer";
