@@ -105,6 +105,10 @@ private:
 	milliseconds initMs;
 	int curTime;
 	
+	WorkPackage w;
+	WorkPackage current;
+	uint64_t startNonce
+	
 	cl::Buffer m_hashCountBuffer;
 	
 	cl::CommandQueue m_invalidatingQueue;

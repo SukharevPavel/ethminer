@@ -273,10 +273,10 @@ void CLMiner::workLoop()
 	int32_t const c_unread = -1;
 	int32_t const c_invalid = -2;
 
-    uint64_t startNonce = 0;
+	startNonce = 0;
 
     // The work package currently processed by GPU.
-    WorkPackage current;
+    
     current.header = h256{1u};
 	
 	kick_miner();
@@ -372,7 +372,9 @@ void CLMiner::workLoop()
 }
 
 void CLMiner::kick_miner() {
-	WorkPackage w = work();
+	int32_t const c_zero = 0;
+	int32_t const c_invalid = -2;
+	w = work();
 				if (current.header != w.header)
 				{	
 					// New work received. Update GPU data.
@@ -435,6 +437,7 @@ void CLMiner::kick_miner() {
 					m_searchKernel.setArg(6, 0xffffffff);
 					m_searchKernel.setArg(7, 1);
 	}
+}
 
 unsigned CLMiner::getNumDevices()
 {
