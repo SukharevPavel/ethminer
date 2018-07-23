@@ -83,7 +83,7 @@ private:
 
 	bool init(int epoch);
 
-	uint_32t const C_INVALID = UINT32_MAX;
+	uint32_t const C_INVALID = UINT32_MAX;
 
 	cl::Context m_context;
 	cl::CommandQueue m_queue;
@@ -108,7 +108,7 @@ private:
 	/// The initial global work size for the searches
 	static unsigned s_initialGlobalWorkSize;
 	
-	DAGState m_dagState = DagState::Idle;
+	DagState m_dagState = DagState::Idle;
 	
 	WorkPackage current;
 	uint64_t startNonce;
