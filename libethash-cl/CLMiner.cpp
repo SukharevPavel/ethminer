@@ -275,7 +275,7 @@ void CLMiner::workLoop()
 
     // The work package currently processed by GPU.
     current.header = h256{1u};
-	boolean isFirst = false;	
+	bool isFirst = false;	
     try {
 		 
         while (!shouldStop())
