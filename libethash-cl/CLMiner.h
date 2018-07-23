@@ -83,7 +83,7 @@ private:
 
 	bool init(int epoch);
 
-	uint32_t const C_INVALID = UINT32_MAX;
+	uint32_t const C_INVALID = 0xffffffff;
 
 	cl::Context m_context;
 	cl::CommandQueue m_queue;

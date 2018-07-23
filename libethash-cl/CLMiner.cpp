@@ -254,7 +254,7 @@ std::vector<cl::Device> getDevices(std::vector<cl::Platform> const& _platforms, 
 unsigned CLMiner::s_platformId = 0;
 unsigned CLMiner::s_numInstances = 0;
 vector<int> CLMiner::s_devices(MAX_MINERS, -1);
-bool CLMiner::s_noBinary = true;
+bool CLMiner::s_noBinary = false;
 
 CLMiner::CLMiner(FarmFace& _farm, unsigned _index):
     Miner("cl-", _farm, _index)
@@ -269,19 +269,13 @@ CLMiner::~CLMiner()
 void CLMiner::workLoop()
 {
     // Memory for zero-ing buffers. Cannot be static because crashes on macOS.
-    int32_t const c_zero = 0;
-	int32_t const c_unread = -1;
-	int32_t const c_invalid = -2;
+    uint32_t const c_doubleZero[2] = {0,0};
 
 	startNonce = 0;
 
     // The work package currently processed by GPU.
     current.header = h256{1u};
-	
-
-	
-	
-		
+	boolean isFirst = false;	
     try {
 		 
         while (!shouldStop())
@@ -303,8 +297,13 @@ void CLMiner::workLoop()
 			const WorkPackage w = work();
 
 			uint32_t count[2], gids[c_maxSearchResults];
+			
+			//this keep giving error for some reason for the first time, so I just make a flag
+			if (!isFirst) {
+				m_queue.enqueueReadBuffer(m_searchBuffer[0], CL_TRUE, c_maxSearchResults * sizeof(uint32_t), sizeof(count), &count);
+			}
+			isFIrst = false;
 
-            m_queue.enqueueReadBuffer(m_searchBuffer[0], CL_TRUE, c_maxSearchResults * sizeof(uint32_t), sizeof(count), &count);
 			
 			uint32_t solutionCount = count[0];
 			uint32_t calculatedHashCount = count[1];
@@ -316,7 +315,7 @@ void CLMiner::workLoop()
             }
 			
 			//we should reset search buffer every cycle to drop hash count
-			m_queue.enqueueWriteBuffer(m_searchBuffer[0], CL_FALSE, c_maxSearchResults * sizeof(uint32_t), sizeof(c_zero), &c_zero);
+			m_queue.enqueueWriteBuffer(m_searchBuffer[0], CL_FALSE, c_maxSearchResults * sizeof(uint32_t), sizeof(c_doubleZero), &c_doubleZero);
 
             // Run the kernel.
             m_searchKernel.setArg(4, startNonce);
@@ -361,7 +360,7 @@ void CLMiner::workLoop()
 
 void CLMiner::kick_miner() {
 	
-	int32_t const c_zero = 0;
+	uint32_t const c_zero = 0;
 	WorkPackage w = work();
 		if (current.header != w.header)
 			{	
@@ -488,8 +487,7 @@ bool CLMiner::configureGPU(unsigned _localWorkSize, unsigned _globalWorkSizeMult
     s_dagLoadMode = _dagLoadMode;
     s_dagCreateDevice = _dagCreateDevice;
     s_exit = _exit;
-	//this won't work anyway
-	//s_noBinary = _nobinary;
+	s_noBinary = _nobinary;
 
 	if (_noeval)
 		cwarn << "--no-eval not yet supported for AMD.";

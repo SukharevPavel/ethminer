@@ -246,9 +246,7 @@ __kernel void search(
     ulong start_nonce,
     ulong target,
     uint isolate,
-    uint itereations,
-	__global volatile uint* g_hashCount
-)
+    uint itereations)
 {
     __global hash128_t const* g_dag = (__global hash128_t const*) _g_dag;
 
@@ -369,8 +367,8 @@ __kernel void search(
 		
 		//count hashes
 		//uint32_t should be enough for one cycle
-		//if g_output[MAX_OUTPUTS]==C_INVALID then it is a stale work
-		if (g_output[MAX_OUTPUTS]!=C_INVALID) {
+		//if g_output[MAX_OUTPUTS]==0xffffffff then it is a stale work
+		if (g_output[MAX_OUTPUTS]!=0xffffffff) {
 			atomic_inc(&g_output[MAX_OUTPUTS+1]);
 		}
 
