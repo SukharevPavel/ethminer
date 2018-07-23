@@ -108,10 +108,20 @@ private:
 	cl::Buffer m_hashCountBuffer;
 	
 	cl::CommandQueue m_invalidatingQueue;
+	
+	unsigned long hashCount;
+    unsigned long lostHashCount;
+	unsigned long changeBlockCount;
+	unsigned long openclCycleCount = 0;
+	bool wasInvalidHeader = false;
 
     void initCounter(){
         initMs = duration_cast< milliseconds >(
                     system_clock::now().time_since_epoch());
+		hashCount = 0;
+        lostHashCount = 0;
+		openclCycleCount = 0;
+		changeBlockCount = 0;
     }
 
     int checkTime(){
