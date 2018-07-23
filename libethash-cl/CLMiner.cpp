@@ -278,7 +278,8 @@ void CLMiner::workLoop()
     // The work package currently processed by GPU.
     WorkPackage current;
     current.header = h256{1u};
-	WorkPackage w = work();
+	
+	kick_miner();
 	
 	bool first = true;
     try {
@@ -294,16 +295,84 @@ void CLMiner::workLoop()
 
             int32_t results[c_maxSearchResults + 1];
 			if (!first) {
+			
 			results[0] = c_unread;
 			// Read results.
 			// TODO: could use pinned host pointer instead.
 		//	cllog << "try to read results";
-			m_queue.enqueueReadBuffer(m_searchBuffer[0], CL_FALSE, 0, sizeof(results), &results);
+			m_queue.enqueueReadBuffer(m_searchBuffer[0], CL_TRUE, 0, sizeof(results), &results);
 			}
-		//	cllog << "waiting for processing or new header";
-			while ((results[0] == c_unread || first )) {
-				first = false;
-				w = work();
+		//	
+		//	cllog << "send invalidation of search buffer";
+			uint64_t nonce = 0;
+			if (results[0] > 0)
+			{
+\
+				// Ignore results except the first one.
+				nonce = current.startNonce + results[1];
+				// Reset search buffer if any solution found.
+				m_queue.enqueueWriteBuffer(m_searchBuffer[0], CL_FALSE, 0, sizeof(c_zero), &c_zero);
+
+			}
+			// Run the kernel.
+			m_searchKernel.setArg(4, startNonce);
+
+			m_queue.enqueueNDRangeKernel(m_searchKernel, cl::NullRange, m_globalWorkSize, m_workgroupSize);
+			first = false;
+			
+			if (nonce != 0) {
+                Result r = EthashAux::eval(current.epoch, current.header, nonce);
+                if (r.value < current.boundary) {
+                    farm.submitProof(Solution{nonce, r.mixHash, current, current.header != w.header});
+                }
+				else {
+					farm.failedSolution();
+					cwarn << "FAILURE: GPU gave incorrect result!";
+				}
+			}
+			
+				if (checkTime()>599000 || checkTime()<1000){			
+				unsigned int hashResults[33];
+				m_invalidatingQueue.enqueueReadBuffer(m_hashCountBuffer, CL_TRUE, 0, sizeof(hashResults), &hashResults);
+				unsigned long validHash = 0;
+				for (int i=0;i<32;i++) {
+					validHash+=hashResults[i];
+				}
+				cllog<<"Hash count :"<<validHash<<";Invalid hash count :"<<hashResults[32]<<";Time = "<<checkTime();
+			}
+
+            
+			current.startNonce = startNonce;
+			// Increase start nonce for following kernel execution.
+			startNonce += m_globalWorkSize;
+
+			// Report hash count
+			addHashCount(m_globalWorkSize);
+
+
+
+
+        }
+		
+		unsigned int hashResults[33];
+		m_invalidatingQueue.enqueueReadBuffer(m_hashCountBuffer, CL_TRUE, 0, sizeof(hashResults), &hashResults);
+		unsigned long validHash = 0;
+		for (int i=0;i<32;i++) {
+				validHash+=hashResults[i];
+		}
+		cllog<<"Hash count :"<<validHash<<";Invalid hash count :"<<hashResults[32]<<";Time = "<<checkTime();
+        m_queue.finish();
+    }
+    catch (cl::Error const& _e)
+    {
+        cwarn << ethCLErrorHelper("OpenCL Error", _e);
+        if(s_exit)
+            exit(1);
+    }
+}
+
+void CLMiner::kick_miner() {
+	WorkPackage w = work();
 				if (current.header != w.header)
 				{	
 					// New work received. Update GPU data.
@@ -365,82 +434,7 @@ void CLMiner::workLoop()
 					m_searchKernel.setArg(5, target);
 					m_searchKernel.setArg(6, 0xffffffff);
 					m_searchKernel.setArg(7, 1);
-						
-						
-				
-				}
-			}
-			
-		//	cllog << "send invalidation of search buffer";
-			uint64_t nonce = 0;
-			if (results[0] > 0)
-			{
-\
-				// Ignore results except the first one.
-				nonce = current.startNonce + results[1];
-				// Reset search buffer if any solution found.
-				m_queue.enqueueWriteBuffer(m_searchBuffer[0], CL_FALSE, 0, sizeof(c_zero), &c_zero);
-
-			}
-			// Run the kernel.
-			m_searchKernel.setArg(4, startNonce);
-
-		//	cllog << "try to send NDRangeKernel";
-		//	printMillis(388);
-			m_queue.enqueueNDRangeKernel(m_searchKernel, cl::NullRange, m_globalWorkSize, m_workgroupSize);
-			//cllog << "send NDRangeKernel";
-			if (nonce != 0) {
-                Result r = EthashAux::eval(current.epoch, current.header, nonce);
-                if (r.value < current.boundary) {
-                    farm.submitProof(Solution{nonce, r.mixHash, current, current.header != w.header});
-                }
-				else {
-					farm.failedSolution();
-					cwarn << "FAILURE: GPU gave incorrect result!";
-				}
-			}
-			
-				if (checkTime()>599000 || checkTime()<1000){			
-				unsigned int hashResults[33];
-				m_invalidatingQueue.enqueueReadBuffer(m_hashCountBuffer, CL_TRUE, 0, sizeof(hashResults), &hashResults);
-				unsigned long validHash = 0;
-				for (int i=0;i<32;i++) {
-					validHash+=hashResults[i];
-				}
-				cllog<<"Hash count :"<<validHash<<";Invalid hash count :"<<hashResults[32]<<";Time = "<<checkTime();
-			}
-
-            
-			current.startNonce = startNonce;
-			// Increase start nonce for following kernel execution.
-			startNonce += m_globalWorkSize;
-
-			// Report hash count
-			addHashCount(m_globalWorkSize);
-
-
-
-
-        }
-		
-		unsigned int hashResults[33];
-		m_invalidatingQueue.enqueueReadBuffer(m_hashCountBuffer, CL_TRUE, 0, sizeof(hashResults), &hashResults);
-		unsigned long validHash = 0;
-		for (int i=0;i<32;i++) {
-				validHash+=hashResults[i];
-		}
-		cllog<<"Hash count :"<<validHash<<";Invalid hash count :"<<hashResults[32]<<";Time = "<<checkTime();
-        m_queue.finish();
-    }
-    catch (cl::Error const& _e)
-    {
-        cwarn << ethCLErrorHelper("OpenCL Error", _e);
-        if(s_exit)
-            exit(1);
-    }
-}
-
-void CLMiner::kick_miner() {}
+	}
 
 unsigned CLMiner::getNumDevices()
 {
