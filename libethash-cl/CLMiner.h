@@ -107,7 +107,7 @@ private:
 	
 	WorkPackage w;
 	WorkPackage current;
-	uint64_t startNonce
+	uint64_t startNonce;
 	
 	cl::Buffer m_hashCountBuffer;
 	
