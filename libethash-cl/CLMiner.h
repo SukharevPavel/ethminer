@@ -9,7 +9,6 @@
 #include <libethcore/EthashAux.h>
 #include <libethcore/Miner.h>
 #include <fstream>
-#include <chrono>
 
 #pragma GCC diagnostic push
 #if __GNUC__ >= 6
@@ -38,12 +37,17 @@
 #define OPENCL_PLATFORM_AMD     2
 #define OPENCL_PLATFORM_CLOVER  3
 
-using namespace std::chrono;
-
 namespace dev
 {
 namespace eth
 {
+	
+enum class DagState
+{
+	Idle,
+	Initializing,
+	Created
+};
 
 class CLMiner: public Miner
 {
@@ -79,6 +83,8 @@ private:
 
 	bool init(int epoch);
 
+	uint_32t const C_INVALID = UINT32_MAX;
+
 	cl::Context m_context;
 	cl::CommandQueue m_queue;
 	cl::Kernel m_searchKernel;
@@ -102,42 +108,12 @@ private:
 	/// The initial global work size for the searches
 	static unsigned s_initialGlobalWorkSize;
 	
-	milliseconds initMs;
-	int curTime;
+	DAGState m_dagState = DagState::Idle;
 	
 	WorkPackage current;
 	uint64_t startNonce;
-	bool isInited = false;
-	bool isInitializing  = false;
-	
-	cl::Buffer m_hashCountBuffer;
-	
+		
 	cl::CommandQueue m_invalidatingQueue;
-
-    void initCounter(){
-        initMs = duration_cast< milliseconds >(
-                    system_clock::now().time_since_epoch());
-    }
-
-    int checkTime(){
-        milliseconds curMs = duration_cast< milliseconds >(
-                    system_clock::now().time_since_epoch());
-		curTime = curMs.count() - initMs.count();
-		return curTime;
-    }
-	
-	int getTime(){
-		return curTime;
-	}
-	
-	milliseconds lastMs;
-	
-	void printMillis(int num){
-		milliseconds ms = duration_cast< milliseconds >(
-			system_clock::now().time_since_epoch());
-		printf("on line %d for %lu ms\n", num, ms - lastMs);
-		lastMs = ms;
-	};
 
 };
 
