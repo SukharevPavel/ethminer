@@ -299,6 +299,7 @@ void CLMiner::workLoop()
 			// TODO: could use pinned host pointer instead.
 		//	cllog << "try to read results";
 			m_queue.enqueueReadBuffer(m_searchBuffer[0], CL_TRUE, 0, sizeof(results), &results);
+			cllog<<"Time:<<"<<checkTime();
 			} else {
 				while (!isInited)
 					{
@@ -327,7 +328,8 @@ void CLMiner::workLoop()
 			if (nonce != 0) {
                 Result r = EthashAux::eval(current.epoch, current.header, nonce);
                 if (r.value < current.boundary) {
-                    farm.submitProof(Solution{nonce, r.mixHash, current, false});
+					WorkPackage w = work();
+                    farm.submitProof(Solution{nonce, r.mixHash, current, current.header != w.header});
                 }
 				else {
 					farm.failedSolution();
