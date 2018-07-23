@@ -269,13 +269,14 @@ CLMiner::~CLMiner()
 void CLMiner::workLoop()
 {
     // Memory for zero-ing buffers. Cannot be static because crashes on macOS.
-    uint32_t const c_doubleZero[2] = {0,0};
+    uint32_t const c_zero = 0;
 
 	startNonce = 0;
 
     // The work package currently processed by GPU.
-    current.header = h256{1u};
-	bool isFirst = false;	
+    current.header = h256{1u};	
+
+    bool isFirst = true;
     try {
 		 
         while (!shouldStop())
@@ -296,26 +297,25 @@ void CLMiner::workLoop()
 			
 			const WorkPackage w = work();
 
-			uint32_t count[2], gids[c_maxSearchResults];
+			uint32_t count[2] = {0,0}, gids[c_maxSearchResults];
 			
-			//this keep giving error for some reason for the first time, so I just make a flag
-			if (!isFirst) {
-				m_queue.enqueueReadBuffer(m_searchBuffer[0], CL_TRUE, c_maxSearchResults * sizeof(uint32_t), sizeof(count), &count);
-			}
-			isFirst = false;
 
+			if (!isFirst) {
+			    m_queue.enqueueReadBuffer(m_searchBuffer[0], CL_TRUE, c_maxSearchResults * sizeof(uint32_t), sizeof(count), &count);
+                        }
+			
 			
 			uint32_t solutionCount = count[0];
 			uint32_t calculatedHashCount = count[1];
-			
+                        cllog<<"solution count:"<<solutionCount<<";calculate hash count:"<<calculatedHashCount; 
             if (solutionCount && solutionCount != C_INVALID)
             {
             	m_queue.enqueueReadBuffer(m_searchBuffer[0], CL_TRUE, 0, solutionCount * sizeof(uint32_t), gids);
                 
             }
 			
-			//we should reset search buffer every cycle to drop hash count
-			m_queue.enqueueWriteBuffer(m_searchBuffer[0], CL_FALSE, c_maxSearchResults * sizeof(uint32_t), sizeof(c_doubleZero), &c_doubleZero);
+			//we should reset search buffer every cycle to drop hash counter
+            m_queue.enqueueFillBuffer(m_searchBuffer[0], c_zero,c_maxSearchResults * sizeof(uint32_t), sizeof(c_zero) * 2);
 
             // Run the kernel.
             m_searchKernel.setArg(4, startNonce);
@@ -323,8 +323,9 @@ void CLMiner::workLoop()
 
             // Report results while the kernel is running.
             for (uint32_t i = 0; i < solutionCount; i++) {
-				
+		
                 uint64_t nonce = current.startNonce + gids[i];
+                cllog<<"submit nonce "<<nonce;
                 Result r = EthashAux::eval(current.epoch, current.header, nonce);
                 if (r.value <= current.boundary) {
                     farm.submitProof(Solution{nonce, r.mixHash, current, current.header != w.header});
@@ -344,9 +345,10 @@ void CLMiner::workLoop()
 			// Otherwise, we are using kernel-side calculaton
 			if (!s_noBinary) {
 				addHashCount(m_globalWorkSize);
-			} else {
+			} else if (!isFirst) {
 				addHashCount(calculatedHashCount);
 			}
+                        isFirst = false;
 
         }
     }
