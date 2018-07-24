@@ -361,7 +361,7 @@ void CLMiner::workLoop()
 
 void CLMiner::kick_miner() {
 	new thread([&]() {
-		dev::setThreadName(m_name.c_str()+"-support");
+		dev::setThreadName("support");
 		uint32_t const c_zero = 0;
 		WorkPackage w = work();
 		if (current.header != w.header)
@@ -421,7 +421,7 @@ void CLMiner::kick_miner() {
 			m_invalidatingQueue.enqueueWriteBuffer(m_searchBuffer[0], 
 				CL_TRUE, c_maxSearchResults * sizeof(uint32_t), sizeof(C_INVALID), &C_INVALID);
 		}
-	}
+	});
 }
 
 unsigned CLMiner::getNumDevices()
