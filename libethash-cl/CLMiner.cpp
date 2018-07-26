@@ -293,6 +293,9 @@ void CLMiner::workLoop()
 				cllog << "DAG is not generated yet, wait 3 seconds";
 				std::this_thread::sleep_for(std::chrono::seconds(3));
 			}
+            if (isFirst) {
+                initCounter();
+            }
 			
 			
 			const WorkPackage w = work();
@@ -301,12 +304,22 @@ void CLMiner::workLoop()
 			
 
 			if (!isFirst) {
+                cllog<<"before readBuffer "<<checkTime();
 			    m_queue.enqueueReadBuffer(m_searchBuffer[0], CL_TRUE, c_maxSearchResults * sizeof(uint32_t), sizeof(count), &count);
+                cllog<<"after readBuffer "<<checkTime();
 			}
-			
 			
 			uint32_t solutionCount = count[0];
 			uint32_t calculatedHashCount = count[1];
+
+            kernelHashCount+=calculatedHashCount;
+            uint32_t meanSpeed = 0;
+            if (!isFirst) {
+                meanSpeed = kernelHashCount/checkTime();
+            }
+
+            cllog<<"kernelHashCount:"<<kernelHashCount<<" time="<<checkTime()<<" mean speed = "<<meanSpeed;
+
             if (solutionCount && solutionCount != C_INVALID)
             {
             	m_queue.enqueueReadBuffer(m_searchBuffer[0], CL_TRUE, 0, solutionCount * sizeof(uint32_t), gids);
@@ -418,8 +431,10 @@ void CLMiner::kick_miner() {
 			m_searchKernel.setArg(7, 1);
 						
 			//set result buffer element at [c_maxSearchResults] position to C_INVALID;
+            cllog<<"invalidate at "<<checkTime();
 			m_invalidatingQueue.enqueueWriteBuffer(m_searchBuffer[0], 
 				CL_TRUE, c_maxSearchResults * sizeof(uint32_t), sizeof(C_INVALID), &C_INVALID);
+            cllog<<"invalidated at "<<checkTime();
 		}
 	});
 }

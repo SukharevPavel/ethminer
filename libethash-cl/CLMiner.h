@@ -9,6 +9,7 @@
 #include <libethcore/EthashAux.h>
 #include <libethcore/Miner.h>
 #include <fstream>
+#include <chrono>
 
 #pragma GCC diagnostic push
 #if __GNUC__ >= 6
@@ -36,6 +37,8 @@
 #define OPENCL_PLATFORM_NVIDIA  1
 #define OPENCL_PLATFORM_AMD     2
 #define OPENCL_PLATFORM_CLOVER  3
+
+using namespace std::chrono;
 
 namespace dev
 {
@@ -114,6 +117,67 @@ private:
 	uint64_t startNonce;
 		
 	cl::CommandQueue m_invalidatingQueue;
+
+	milliseconds initMs;
+	milliseconds lastCycleTime;
+	int curTime;
+	unsigned long hashCount;
+    unsigned long lostHashCount;
+	unsigned long changeBlockCount;
+	unsigned long openclCycleCount = 0;
+	bool wasInvalidHeader = false;
+	unsigned int meanCycleTime;
+	unsigned int cycleCount;
+	unsigned long kernelHashCount;
+
+    void initCounter(){
+        initMs = duration_cast< milliseconds >(
+                    system_clock::now().time_since_epoch());
+		hashCount = 0;
+        lostHashCount = 0;
+		openclCycleCount = 0;
+		changeBlockCount = 0;
+		meanCycleTime = 0;
+		cycleCount = 0;
+		kernelHashCount = 0;
+		lastCycleTime = duration_cast< milliseconds >(steady_clock::duration::zero());
+    }
+
+    int checkTime(){
+        milliseconds curMs = duration_cast< milliseconds >(
+                    system_clock::now().time_since_epoch());
+		curTime = curMs.count() - initMs.count();
+		return curTime;
+    }
+
+    int checkCycleTime(){
+    	if (lastCycleTime.count()) {
+        milliseconds curMs = duration_cast< milliseconds >(
+                    system_clock::now().time_since_epoch());
+		curTime = curMs.count() - lastCycleTime.count();
+		lastCycleTime = curMs;
+		meanCycleTime = (meanCycleTime * cycleCount + curTime) / (cycleCount + 1);
+		cycleCount++;
+	} else {
+			lastCycleTime =  duration_cast< milliseconds >(
+                    system_clock::now().time_since_epoch());
+		}
+		return meanCycleTime;
+	
+    }
+	
+	int getTime(){
+		return curTime;
+	}
+	
+	milliseconds lastMs;
+	
+	void printMillis(int num){
+		milliseconds ms = duration_cast< milliseconds >(
+			system_clock::now().time_since_epoch());
+		printf("on line %d for %lu ms\n", num, ms - lastMs);
+		lastMs = ms;
+	};
 
 };
 
