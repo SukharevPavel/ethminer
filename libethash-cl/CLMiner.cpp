@@ -344,11 +344,10 @@ void CLMiner::workLoop()
             }
 
             // Read results.
-			uint32_t count, gids[c_maxSearchResults];
+			uint32_t count[2]{0,0}, gids[c_maxSearchResults];
            	m_queue.enqueueReadBuffer(m_searchBuffer[0], CL_TRUE, c_maxSearchResults * sizeof(uint32_t), sizeof(count), &count);
             cllog<<"cycle time:"<<checkCycleTime();
-			if (checkTime() < 120000) {
-
+				kernelHashCount += count[1];
 				benchmarkTime = getTime();
 				openclCycleCount++;
 				if (wasInvalidHeader) {
@@ -359,19 +358,19 @@ void CLMiner::workLoop()
 					hashCount += m_globalWorkSize;
 				//	cllog<<"increment " << hashCount;
 				}
-			} else {
+				uint64_t totalHashCount = lostHashCount + hashCount;
 				 cllog<<"benchmark finish; valid hashes = " << hashCount << 
 				 "; invalid hashes = " << lostHashCount<<
 				 "; cycles = "<< openclCycleCount <<
-				 "time = "<<benchmarkTime<<"; count of new work = "<<changeBlockCount; 
-}
+				 "time = "<<checkTime()<<"; count of new work = "<<changeBlockCount<<"\ntotalHashCount:"<<totalHashCount<<"\nkernelHashCount:"<<kernelHashCount; 
 
-            if (count)
+            if (count[0])
             {
-            	m_queue.enqueueReadBuffer(m_searchBuffer[0], CL_TRUE, 0, count* sizeof(uint32_t), gids);
+            	m_queue.enqueueReadBuffer(m_searchBuffer[0], CL_TRUE, 0, count[0]* sizeof(uint32_t), gids);
 
-            	 m_queue.enqueueWriteBuffer(m_searchBuffer[0], CL_FALSE, c_maxSearchResults * sizeof(uint32_t), sizeof(c_zero), &c_zero);
             }
+
+             m_queue.enqueueFillBuffer(m_searchBuffer[0], c_zero,c_maxSearchResults * sizeof(uint32_t), sizeof(c_zero) * 2);
 
             //we should reset search buffer every cycle to drop hash counter
             // Run the kernel.
@@ -379,7 +378,7 @@ void CLMiner::workLoop()
             m_queue.enqueueNDRangeKernel(m_searchKernel, cl::NullRange, m_globalWorkSize, m_workgroupSize);
 
             // Report results while the kernel is running.
-            for (uint32_t i = 0; i < count; i++) {
+            for (uint32_t i = 0; i < count[0]; i++) {
 				
                 uint64_t nonce = current.startNonce + gids[i];
                 Result r = EthashAux::eval(current.epoch, current.header, nonce);

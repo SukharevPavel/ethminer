@@ -118,6 +118,7 @@ private:
 	bool wasInvalidHeader = false;
 	unsigned int meanCycleTime;
 	unsigned int cycleCount;
+	unsigned int kernelHashCount;
 
     void initCounter(){
         initMs = duration_cast< milliseconds >(
@@ -128,6 +129,7 @@ private:
 		changeBlockCount = 0;
 		meanCycleTime = 0;
 		cycleCount = 0;
+		kernelHashCount = 0;
 		lastCycleTime = duration_cast< milliseconds >(steady_clock::duration::zero());
     }
 
