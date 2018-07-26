@@ -101,19 +101,23 @@ private:
 	static unsigned s_workgroupSize;
 	/// The initial global work size for the searches
 	static unsigned s_initialGlobalWorkSize;
-	
-	milliseconds initMs;
-	int curTime;
+
 	
 	cl::Buffer m_hashCountBuffer;
 	
 	cl::CommandQueue m_invalidatingQueue;
+
 	
+	milliseconds initMs;
+	milliseconds lastCycleTime;
+	int curTime;
 	unsigned long hashCount;
     unsigned long lostHashCount;
 	unsigned long changeBlockCount;
 	unsigned long openclCycleCount = 0;
 	bool wasInvalidHeader = false;
+	unsigned int meanCycleTime;
+	unsigned int cycleCount;
 
     void initCounter(){
         initMs = duration_cast< milliseconds >(
@@ -122,6 +126,9 @@ private:
         lostHashCount = 0;
 		openclCycleCount = 0;
 		changeBlockCount = 0;
+		meanCycleTime = 0;
+		cycleCount = 0;
+		lastCycleTime = duration_cast< milliseconds >(steady_clock::duration::zero());
     }
 
     int checkTime(){
@@ -129,6 +136,22 @@ private:
                     system_clock::now().time_since_epoch());
 		curTime = curMs.count() - initMs.count();
 		return curTime;
+    }
+
+    int checkCycleTime(){
+    	if (lastCycleTime.count()) {
+        milliseconds curMs = duration_cast< milliseconds >(
+                    system_clock::now().time_since_epoch());
+		curTime = curMs.count() - lastCycleTime.count();
+		lastCycleTime = curMs;
+		meanCycleTime = (meanCycleTime * cycleCount + curTime) / (cycleCount + 1);
+		cycleCount++;
+	} else {
+			lastCycleTime =  duration_cast< milliseconds >(
+                    system_clock::now().time_since_epoch());
+		}
+		return meanCycleTime;
+	
     }
 	
 	int getTime(){

@@ -345,10 +345,10 @@ void CLMiner::workLoop()
 
             // Read results.
 			uint32_t count, gids[c_maxSearchResults];
+           	m_queue.enqueueReadBuffer(m_searchBuffer[0], CL_TRUE, c_maxSearchResults * sizeof(uint32_t), sizeof(count), &count);
+            cllog<<"cycle time:"<<checkCycleTime();
+			if (checkTime() < 120000) {
 
-            m_queue.enqueueReadBuffer(m_searchBuffer[0], CL_TRUE, c_maxSearchResults * sizeof(uint32_t), sizeof(count), &count);
-
-			if (checkTime() < 600000) {
 				benchmarkTime = getTime();
 				openclCycleCount++;
 				if (wasInvalidHeader) {
@@ -368,11 +368,12 @@ void CLMiner::workLoop()
 
             if (count)
             {
-            	m_queue.enqueueReadBuffer(m_searchBuffer[0], CL_TRUE, 0, count * sizeof(uint32_t), gids);
-                // Reset search buffer if any solution found.
-                m_queue.enqueueWriteBuffer(m_searchBuffer[0], CL_FALSE, c_maxSearchResults * sizeof(uint32_t), sizeof(c_zero), &c_zero);
+            	m_queue.enqueueReadBuffer(m_searchBuffer[0], CL_TRUE, 0, count* sizeof(uint32_t), gids);
+
+            	 m_queue.enqueueWriteBuffer(m_searchBuffer[0], CL_FALSE, c_maxSearchResults * sizeof(uint32_t), sizeof(c_zero), &c_zero);
             }
 
+            //we should reset search buffer every cycle to drop hash counter
             // Run the kernel.
             m_searchKernel.setArg(4, startNonce);
             m_queue.enqueueNDRangeKernel(m_searchKernel, cl::NullRange, m_globalWorkSize, m_workgroupSize);
@@ -771,7 +772,7 @@ bool CLMiner::init(int epoch)
         // create mining buffers
         ETHCL_LOG("Creating mining buffer");
 		m_searchBuffer.clear();
-        m_searchBuffer.push_back(cl::Buffer(m_context, CL_MEM_WRITE_ONLY, (c_maxSearchResults + 1) * sizeof(uint32_t)));
+        m_searchBuffer.push_back(cl::Buffer(m_context, CL_MEM_WRITE_ONLY, (c_maxSearchResults + 2) * sizeof(uint32_t)));
 
         m_dagKernel.setArg(1, m_light[0]);
         m_dagKernel.setArg(2, m_dag[0]);
@@ -782,6 +783,7 @@ bool CLMiner::init(int epoch)
 
         auto startDAG = std::chrono::steady_clock::now();
 		uint32_t start;
+		if (workItems >= m_globalWorkSize)
         for (start = 0; start <= workItems - m_globalWorkSize; start += m_globalWorkSize)
         {
             m_dagKernel.setArg(0, start);
