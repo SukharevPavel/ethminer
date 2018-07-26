@@ -319,7 +319,7 @@ void CLMiner::workLoop()
 				
                 // Update header constant buffer.
                 m_queue.enqueueWriteBuffer(m_header[0], CL_FALSE, 0, w.header.size, w.header.data());
-                m_queue.enqueueWriteBuffer(m_searchBuffer[0], CL_FALSE, c_maxSearchResults * sizeof(uint32_t), sizeof(c_zero), &c_zero);
+                m_queue.enqueueFillBuffer(m_searchBuffer[0], c_zero,c_maxSearchResults * sizeof(uint32_t), sizeof(c_zero) * 2);
 
                 if (w.exSizeBits >= 0)
                 {
@@ -358,11 +358,15 @@ void CLMiner::workLoop()
 					hashCount += m_globalWorkSize;
 				//	cllog<<"increment " << hashCount;
 				}
+				int meanSpeed = 0;
+				if (checkTime()){
+					meanSpeed = kernelHashCount / checkTime();
+				}
 				uint64_t totalHashCount = lostHashCount + hashCount;
 				 cllog<<"benchmark finish; valid hashes = " << hashCount << 
 				 "; invalid hashes = " << lostHashCount<<
 				 "; cycles = "<< openclCycleCount <<
-				 "time = "<<checkTime()<<"; count of new work = "<<changeBlockCount<<"\ntotalHashCount:"<<totalHashCount<<"\nkernelHashCount:"<<kernelHashCount; 
+				 ";time = "<<checkTime()<<"; count of new work = "<<changeBlockCount<<"\ntotalHashCount:"<<totalHashCount<<"\nkernelHashCount:"<<kernelHashCount<<"\nmeanSpeed="<<meanSpeed; 
 
             if (count[0])
             {

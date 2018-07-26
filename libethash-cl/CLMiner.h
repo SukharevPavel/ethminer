@@ -118,7 +118,7 @@ private:
 	bool wasInvalidHeader = false;
 	unsigned int meanCycleTime;
 	unsigned int cycleCount;
-	unsigned int kernelHashCount;
+	unsigned long kernelHashCount;
 
     void initCounter(){
         initMs = duration_cast< milliseconds >(

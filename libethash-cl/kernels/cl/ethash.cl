@@ -248,12 +248,14 @@ __kernel void search(
     uint isolate,
     uint itereations)
 {
+
+    if (g_output[MAX_OUTPUTS]!=0) {
+            return;
+        }
     __global hash128_t const* g_dag = (__global hash128_t const*) _g_dag;
 
     for (volatile int iter = 0; iter < itereations; ++iter) {
-        if (g_output[MAX_OUTPUTS]!=0) {
-            return;
-        }
+        
         const uint gid = get_global_id(0) + iter * get_num_groups(0) * WORKSIZE;
         const uint thread_id = get_local_id(0) % 4;
         const uint hash_id = get_local_id(0) / 4;
