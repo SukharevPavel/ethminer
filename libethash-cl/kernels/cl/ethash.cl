@@ -370,7 +370,10 @@ __kernel void search(
 		//if g_output[MAX_OUTPUTS]==CL_INVALID(0xffffffff) then it is a stale work
 		if (g_output[MAX_OUTPUTS]!=0xffffffff) {
 			atomic_inc(&g_output[MAX_OUTPUTS+1]);
-		}
+		} else {
+            atomic_inc(&g_output[MAX_OUTPUTS+2]);
+            return;
+        }
 
         if (as_ulong(as_uchar8(state[0]).s76543210) < target) {
             uint slot = min(MAX_OUTPUTS - 1u, atomic_inc(&g_output[MAX_OUTPUTS]));

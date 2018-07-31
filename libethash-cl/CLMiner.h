@@ -129,6 +129,9 @@ private:
 	unsigned int meanCycleTime;
 	unsigned int cycleCount;
 	unsigned long kernelHashCount;
+	unsigned long invalidKernelHashCount;
+	int benchmarkTime;
+
 
     void initCounter(){
         initMs = duration_cast< milliseconds >(
@@ -140,6 +143,8 @@ private:
 		meanCycleTime = 0;
 		cycleCount = 0;
 		kernelHashCount = 0;
+		invalidKernelHashCount = 0;
+		benchmarkTime = 0;
 		lastCycleTime = duration_cast< milliseconds >(steady_clock::duration::zero());
     }
 

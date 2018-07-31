@@ -300,26 +300,31 @@ void CLMiner::workLoop()
 			
 			const WorkPackage w = work();
 
-			uint32_t count[2] = {0,0}, gids[c_maxSearchResults];
+			uint32_t count[3] = {0,0,0}, gids[c_maxSearchResults];
 			
 
 			if (!isFirst) {
-                cllog<<"before readBuffer "<<checkTime();
 			    m_queue.enqueueReadBuffer(m_searchBuffer[0], CL_TRUE, c_maxSearchResults * sizeof(uint32_t), sizeof(count), &count);
-                cllog<<"after readBuffer "<<checkTime();
-			}
+            }
 			
 			uint32_t solutionCount = count[0];
 			uint32_t calculatedHashCount = count[1];
+            uint32_t calculatedInvalidHashCount = count[2];
 
-            kernelHashCount+=calculatedHashCount;
+
             uint32_t meanSpeed = 0;
+            if (checkTime()<600000) {
             if (!isFirst) {
+
+                kernelHashCount+=calculatedHashCount;
+                invalidKernelHashCount += calculatedInvalidHashCount;
+                benchmarkTime = checkTime();
                 meanSpeed = kernelHashCount/checkTime();
             }
+        }  else {
 
-            cllog<<"kernelHashCount:"<<kernelHashCount<<" time="<<checkTime()<<" mean speed = "<<meanSpeed;
-
+            cllog<<"kernelHashCount:"<<kernelHashCount<<" invalidKernelHashCount:"<<invalidKernelHashCount<<" time="<<benchmarkTime<<" mean speed = "<<meanSpeed;
+            }
             if (solutionCount && solutionCount != C_INVALID)
             {
             	m_queue.enqueueReadBuffer(m_searchBuffer[0], CL_TRUE, 0, solutionCount * sizeof(uint32_t), gids);
@@ -327,7 +332,7 @@ void CLMiner::workLoop()
             }
 			
 			//we should reset search buffer every cycle to drop hash counter
-            m_queue.enqueueFillBuffer(m_searchBuffer[0], c_zero,c_maxSearchResults * sizeof(uint32_t), sizeof(c_zero) * 2);
+            m_queue.enqueueFillBuffer(m_searchBuffer[0], c_zero,c_maxSearchResults * sizeof(uint32_t), sizeof(c_zero) * 3);
 
             // Run the kernel.
             m_searchKernel.setArg(4, startNonce);
@@ -405,7 +410,7 @@ void CLMiner::kick_miner() {
 
 			// Update header constant buffer.				
 			m_queue.enqueueWriteBuffer(m_header[0], CL_FALSE, 0, w.header.size, w.header.data());
-			m_queue.enqueueFillBuffer(m_searchBuffer[0], c_zero,c_maxSearchResults * sizeof(uint32_t), sizeof(c_zero) * 2);
+			m_queue.enqueueFillBuffer(m_searchBuffer[0], c_zero,c_maxSearchResults * sizeof(uint32_t), sizeof(c_zero) * 3);
 						
 			current = w;        // kernel now processing newest work
 			if (w.exSizeBits >= 0)
@@ -801,7 +806,7 @@ bool CLMiner::init(int epoch)
         ETHCL_LOG("Creating mining buffer");
 		m_searchBuffer.clear();
 		//+ 2 cause we use [c_maxSearchResults+1] element to count hashes in case of OpenCL kernel
-        m_searchBuffer.push_back(cl::Buffer(m_context, CL_MEM_WRITE_ONLY, (c_maxSearchResults + 2) * sizeof(uint32_t)));
+        m_searchBuffer.push_back(cl::Buffer(m_context, CL_MEM_WRITE_ONLY, (c_maxSearchResults + 3) * sizeof(uint32_t)));
 
         m_dagKernel.setArg(1, m_light[0]);
         m_dagKernel.setArg(2, m_dag[0]);
