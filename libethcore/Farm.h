@@ -112,6 +112,8 @@ public:
 	 */
 	void setWork(WorkPackage const& _wp)
 	{
+
+		std::cout<<"set work"<<std::endl;
 		// Collect hashrate before miner reset their work
 		collectHashRate();
 
@@ -201,9 +203,12 @@ public:
     void collectHashRate()
     {
 
-        auto now = std::chrono::steady_clock::now();
 
         std::lock_guard<std::mutex> lock(x_minerWork);
+		std::cout<<"collecting hash rate"<<std::endl;
+
+        auto now = std::chrono::steady_clock::now();
+
 
         WorkingProgress p;
         p.ms = std::chrono::duration_cast<std::chrono::milliseconds>(now - m_lastStart).count();
@@ -214,11 +219,12 @@ public:
         {
             uint64_t minerHashCount = i->hashCount();
 			i->resetHashCount();
+			std::cout<<"miner hash count "<<minerHashCount<<std::endl;
             p.hashes += minerHashCount;
             p.minersHashes.push_back(minerHashCount);
         }
 
-        if (p.hashes > 0)
+ //       if (p.hashes > 0)
             m_lastProgresses.push_back(p);
 
         // We smooth the hashrate over the last x seconds
@@ -523,7 +529,7 @@ private:
 	bool b_lastMixed = false;
 
 	std::chrono::steady_clock::time_point m_lastStart;
-	uint64_t m_hashrateSmoothInterval = 10000;
+	uint64_t m_hashrateSmoothInterval = 60000;
 
 	boost::asio::io_service::strand m_io_strand;
 	boost::asio::deadline_timer m_hashrateTimer;

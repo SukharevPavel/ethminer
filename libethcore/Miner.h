@@ -141,6 +141,8 @@ struct WorkingProgress
 
 inline std::ostream& operator<<(std::ostream& _out, WorkingProgress _p)
 {
+	_out << "Time "
+		 << EthTealBold << _p.ms << " and hashes : " <<_p.hashes;
 	float mh = _p.rate() / 1000000.0f;
 	_out << "Speed "
 		 << EthTealBold << std::fixed << std::setprecision(2) << mh << EthReset

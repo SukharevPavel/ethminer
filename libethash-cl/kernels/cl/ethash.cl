@@ -15,7 +15,7 @@
 // You should have received a copy of the GNU General Public License
 // along with Gateless Gate Sharp.  If not, see <http://www.gnu.org/licenses/>.
 
-
+#pragma OPENCL EXTENSION cl_intel_printf : enable
 
 #if (defined(__Tahiti__) || defined(__Pitcairn__) || defined(__Capeverde__) || defined(__Oland__) || defined(__Hainan__))
 #define LEGACY
@@ -249,15 +249,12 @@ __kernel void search(
     uint itereations)
 {
     __global hash128_t const* g_dag = (__global hash128_t const*) _g_dag;
-
-    for (volatile int iter = 0; iter < itereations; ++iter) {
-		if (g_output[MAX_OUTPUTS]!=0) {
-			return;
-		}
+    uint iter = 0;
+    while (g_output[MAX_OUTPUTS] == 0) {
+    //for (volatile int iter = 0; iter < 400; ++iter) {
         const uint gid = get_global_id(0) + iter * get_num_groups(0) * WORKSIZE;
         const uint thread_id = get_local_id(0) % 4;
         const uint hash_id = get_local_id(0) / 4;
-
         __local compute_hash_share sharebuf[WORKSIZE / 4];
 #ifdef LEGACY
         __local uint buffer[WORKSIZE / 4];
@@ -368,17 +365,20 @@ __kernel void search(
 		//count hashes
 		//uint32_t should be enough for one cycle
 		//if g_output[MAX_OUTPUTS]==CL_INVALID(0xffffffff) then it is a stale work
-		if (g_output[MAX_OUTPUTS]!=0xffffffff) {
-			atomic_inc(&g_output[MAX_OUTPUTS+1]);
-		} else {
-            atomic_inc(&g_output[MAX_OUTPUTS+2]);
-            return;
+        if (get_local_id(0) == 0) {
+    	    if (g_output[MAX_OUTPUTS]!=0xffffffff) {
+    			atomic_add(&g_output[MAX_OUTPUTS+1], WORKSIZE);
+    		} else {
+                atomic_add(&g_output[MAX_OUTPUTS+2], WORKSIZE);
+                return;
+            }
         }
 
         if (as_ulong(as_uchar8(state[0]).s76543210) < target) {
             uint slot = min(MAX_OUTPUTS - 1u, atomic_inc(&g_output[MAX_OUTPUTS]));
 			g_output[slot] = gid;
         }
+        iter++;
     }
 }
 

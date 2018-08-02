@@ -84,7 +84,6 @@ void Worker::stopWorking()
 		{
 			WorkerState ex = WorkerState::Started;
 			m_state.compare_exchange_strong(ex, WorkerState::Stopping);
-
 			while (m_state != WorkerState::Stopped)
 				this_thread::sleep_for(chrono::microseconds(20));
 		}
