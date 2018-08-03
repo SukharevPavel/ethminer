@@ -113,7 +113,6 @@ public:
 	void setWork(WorkPackage const& _wp)
 	{
 
-		std::cout<<"set work"<<std::endl;
 		// Collect hashrate before miner reset their work
 		collectHashRate();
 
@@ -205,7 +204,6 @@ public:
 
 
         std::lock_guard<std::mutex> lock(x_minerWork);
-		std::cout<<"collecting hash rate"<<std::endl;
 
         auto now = std::chrono::steady_clock::now();
 
@@ -219,7 +217,6 @@ public:
         {
             uint64_t minerHashCount = i->hashCount();
 			i->resetHashCount();
-			std::cout<<"miner hash count "<<minerHashCount<<std::endl;
             p.hashes += minerHashCount;
             p.minersHashes.push_back(minerHashCount);
         }

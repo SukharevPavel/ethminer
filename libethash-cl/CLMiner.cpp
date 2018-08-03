@@ -400,8 +400,8 @@ void CLMiner::workLoop()
             uint32_t meanSpeed = 0;
             if (checkTime()<600000) {
 
-            kernelHashCount=calculatedHashCount;
-            invalidKernelHashCount = calculatedInvalidHashCount;
+            kernelHashCount+=calculatedHashCount;
+            invalidKernelHashCount += calculatedInvalidHashCount;
             benchmarkTime = checkTime();
             meanSpeed = kernelHashCount/checkTime();
         }

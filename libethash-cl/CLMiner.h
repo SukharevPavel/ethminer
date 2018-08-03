@@ -126,7 +126,7 @@ private:
 	unsigned long changeBlockCount;
 	unsigned long openclCycleCount = 0;
 	bool wasInvalidHeader = false;
-	unsigned int meanCycleTime;
+	double meanCycleTime;
 	unsigned int cycleCount;
 	unsigned long kernelHashCount;
 	unsigned long invalidKernelHashCount;
@@ -167,7 +167,7 @@ private:
 			lastCycleTime =  duration_cast< milliseconds >(
                     system_clock::now().time_since_epoch());
 		}
-		return meanCycleTime;
+		return (int) meanCycleTime;
 	
     }
 	
