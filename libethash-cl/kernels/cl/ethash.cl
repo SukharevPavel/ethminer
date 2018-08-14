@@ -365,13 +365,8 @@ __kernel void search(
 		//count hashes
 		//uint32_t should be enough for one cycle
 		//if g_output[MAX_OUTPUTS]==CL_INVALID(0xffffffff) then it is a stale work
-        if (get_local_id(0) == 0) {
-    	    if (g_output[MAX_OUTPUTS]!=0xffffffff) {
-    			atomic_add(&g_output[MAX_OUTPUTS+1], WORKSIZE);
-    		} else {
-                atomic_add(&g_output[MAX_OUTPUTS+2], WORKSIZE);
-                return;
-            }
+        if (g_output[MAX_OUTPUTS]!=0xffffffff) {
+            atomic_inc(&g_output[MAX_OUTPUTS+1]);
         }
 
         if (as_ulong(as_uchar8(state[0]).s76543210) < target) {
