@@ -8,6 +8,9 @@
 
 #include <ethash/ethash.hpp>
 #include <boost/dll.hpp>
+#include <vector>
+#include <thread>
+
 
 using namespace dev;
 using namespace eth;
@@ -21,6 +24,7 @@ unsigned CLMiner::s_workgroupSize = CLMiner::c_defaultLocalWorkSize;
 unsigned CLMiner::s_initialGlobalWorkSize = CLMiner::c_defaultGlobalWorkSizeMultiplier * CLMiner::c_defaultLocalWorkSize;
 
 constexpr size_t c_maxSearchResults = 255;
+constexpr size_t c_verifyCount = 25500;
 
 struct CLChannel: public LogChannel
 {
@@ -256,6 +260,15 @@ unsigned CLMiner::s_numInstances = 0;
 vector<int> CLMiner::s_devices(MAX_MINERS, -1);
 bool CLMiner::s_noBinary = false;
 
+
+ulong correct = 0;
+ulong wrong = 0;
+ulong skipped = 0;
+bool isWorking = false;
+WorkPackage verifiedPackage;
+WorkPackage currentWorkingPackage;
+std::vector<uint32_t> verifiedVector;
+
 CLMiner::CLMiner(FarmFace& _farm, unsigned _index):
     Miner("cl-", _farm, _index)
 {}
@@ -300,25 +313,36 @@ void CLMiner::workLoop()
 			
 			const WorkPackage w = work();
 
-			uint32_t count[2] = {0,0}, gids[c_maxSearchResults];
+			uint32_t count[3] = {0,0,0}, gids[c_maxSearchResults];
 			
 
 			if (!isFirst) {
-                cllog<<"before readBuffer "<<checkTime();
+           //     cllog<<"before readBuffer "<<checkTime();
 			    m_queue.enqueueReadBuffer(m_searchBuffer[0], CL_TRUE, c_maxSearchResults * sizeof(uint32_t), sizeof(count), &count);
-                cllog<<"after readBuffer "<<checkTime();
+         //       cllog<<"after readBuffer "<<checkTime();
 			}
 			
 			uint32_t solutionCount = count[0];
 			uint32_t calculatedHashCount = count[1];
-
+            uint32_t shouldBeVerifiedCount = count[2];
             kernelHashCount+=calculatedHashCount;
             uint32_t meanSpeed = 0;
             if (!isFirst) {
                 meanSpeed = kernelHashCount/checkTime();
             }
 
-            cllog<<"kernelHashCount:"<<kernelHashCount<<" time="<<checkTime()<<" mean speed = "<<meanSpeed;
+           // cllog<<"kernelHashCount:"<<kernelHashCount<<" time="<<checkTime()<<" mean speed = "<<meanSpeed<<" verify number="<<shouldBeVerifiedCount;
+
+       //     cllog<<"before verifying "<<checkTime();
+
+            if (shouldBeVerifiedCount > 0){
+                uint32_t verified[shouldBeVerifiedCount];
+
+                m_queue.enqueueReadBuffer(m_verifyBuffer[0], CL_TRUE, 0, sizeof(verified), &verified);
+                verify(verified, shouldBeVerifiedCount,currentWorkingPackage);
+               
+            }
+            //cllog<<"after verifying "<<checkTime();
 
             if (solutionCount && solutionCount != C_INVALID)
             {
@@ -327,12 +351,12 @@ void CLMiner::workLoop()
             }
 			
 			//we should reset search buffer every cycle to drop hash counter
-            m_queue.enqueueFillBuffer(m_searchBuffer[0], c_zero,c_maxSearchResults * sizeof(uint32_t), sizeof(c_zero) * 2);
+            m_queue.enqueueFillBuffer(m_searchBuffer[0], c_zero,c_maxSearchResults * sizeof(uint32_t), sizeof(c_zero) * 3);
 
             // Run the kernel.
             m_searchKernel.setArg(4, startNonce);
             m_queue.enqueueNDRangeKernel(m_searchKernel, cl::NullRange, m_globalWorkSize, m_workgroupSize);
-
+            
             // Report results while the kernel is running.
             if (solutionCount != C_INVALID) {
                 for (uint32_t i = 0; i < solutionCount; i++) {
@@ -349,11 +373,14 @@ void CLMiner::workLoop()
                 }
             }
 
+
+		//	cllog << "correct:"<<correct<<";wrong:"<<wrong<<";skipped:"<<skipped;
+
             
 			current.startNonce = startNonce;
 			// Increase start nonce for following kernel execution.
 			startNonce += m_globalWorkSize;
-
+			currentWorkingPackage = WorkPackage(current);
 			// If binary, then we count by m_globalWorkSize
 			// Otherwise, we are using kernel-side calculaton
 			if (!s_noBinary) {
@@ -371,6 +398,53 @@ void CLMiner::workLoop()
             exit(1);
     }
 }
+
+void verifyAsync(std::vector<uint32_t> verified, WorkPackage verifiedPackage){
+	isWorking = true;
+	        for (uint32_t i = 0; i < verified.size(); i++){
+	            Result r = EthashAux::eval(verifiedPackage.epoch, verifiedPackage.header, verifiedPackage.startNonce + verified[i]);
+	            if ((unsigned long)(u64)((u256)r.value >> 192) <= 18446744073709UL) {
+	                correct++;
+	                 //cllog << "correct result value = "<<(unsigned long)(u64)((u256)r.value >> 192)<<" for gid = "<<verified[i];
+	            }else {
+	                wrong++;
+	                  //cwarn << "wrong result value = "<<(unsigned long)(u64)((u256)r.value >> 192)<<" for gid = "<<verified[i];
+	            }
+	        }
+	        isWorking = false;
+}
+
+void emptyFunction(){
+	isWorking = true;
+	        for (uint32_t i = 0; i < verifiedVector.size(); i++){
+	            Result r = EthashAux::eval(verifiedPackage.epoch, verifiedPackage.header, verifiedPackage.startNonce + verifiedVector[i]);
+	            if ((unsigned long)(u64)((u256)r.value >> 192) <= 18446744073709000UL) {
+	                correct++;
+	               //  cllog << "correct result value = "<<(unsigned long)(u64)((u256)r.value >> 192)<<" for gid = "<<verifiedVector[i];
+	            }else {
+	                wrong++;
+	               //   cwarn << "wrong result value = "<<(unsigned long)(u64)((u256)r.value >> 192)<<" for gid = "<<verifiedVector[i];
+	            }
+	        }
+	        isWorking = false;
+
+	    }
+
+void CLMiner::verify(uint32_t verified[], uint shouldBeVerifiedCount, WorkPackage package) {
+	if(!isWorking) {
+	//	cllog << "start thread";
+		verifiedVector = std::vector<uint32_t>(verified, verified + shouldBeVerifiedCount);
+		verifiedPackage = WorkPackage(package);
+	//	cllog<<"was "<<shouldBeVerifiedCount<<" and now it is "<<verifiedVector.size();
+		new thread([&]() {
+			emptyFunction();
+		});
+	} else {
+		skipped += shouldBeVerifiedCount;
+	}
+}
+
+
 
 void CLMiner::kick_miner() {
 	new thread([&]() {
@@ -402,12 +476,16 @@ void CLMiner::kick_miner() {
 			// Upper 64 bits of the boundary.
 			const uint64_t target = (uint64_t)(u64)((u256)w.boundary >> 192);
 			assert(target > 0);
+		//	cllog<<"target send:"<<target<<" while real boundary:"<<(uint64_t)(u64)((u256)w.boundary);
 
 			// Update header constant buffer.				
 			m_queue.enqueueWriteBuffer(m_header[0], CL_FALSE, 0, w.header.size, w.header.data());
 			m_queue.enqueueFillBuffer(m_searchBuffer[0], c_zero,c_maxSearchResults * sizeof(uint32_t), sizeof(c_zero) * 2);
+
+			m_queue.enqueueFillBuffer(m_verifyBuffer[0], c_zero,0, (c_verifyCount) * sizeof(uint32_t));
 						
 			current = w;        // kernel now processing newest work
+
 			if (w.exSizeBits >= 0)
 				{
 				// This can support up to 2^c_log2MaxMiners devices.
@@ -429,12 +507,15 @@ void CLMiner::kick_miner() {
 			m_searchKernel.setArg(5, target);
 			m_searchKernel.setArg(6, 0xffffffff);
 			m_searchKernel.setArg(7, 1);
+            m_searchKernel.setArg(8, m_verifyBuffer[0]);
 						
 			//set result buffer element at [c_maxSearchResults] position to C_INVALID;
-            cllog<<"invalidate at "<<checkTime();
 			m_invalidatingQueue.enqueueWriteBuffer(m_searchBuffer[0], 
 				CL_TRUE, c_maxSearchResults * sizeof(uint32_t), sizeof(C_INVALID), &C_INVALID);
-            cllog<<"invalidated at "<<checkTime();
+
+
+			cllog << "correct:"<<correct<<";wrong:"<<wrong<<";skipped:"<<skipped;
+			
 		}
 	});
 }
@@ -675,6 +756,7 @@ bool CLMiner::init(int epoch)
         addDefinition(code, "WORKSIZE", m_workgroupSize);
         addDefinition(code, "ACCESSES", 64);
         addDefinition(code, "MAX_OUTPUTS", c_maxSearchResults);
+        addDefinition(code, "VERIFY_COUNT", c_verifyCount);
         addDefinition(code, "PLATFORM", platformId);
         addDefinition(code, "COMPUTE", computeCapability);
 
@@ -795,13 +877,18 @@ bool CLMiner::init(int epoch)
         m_searchKernel.setArg(2, m_dag[0]);
         m_searchKernel.setArg(3, m_dagItems);
         m_searchKernel.setArg(6, ~0u);
-        m_searchKernel.setArg(7, 1u);  // Number of iterations
+        m_searchKernel.setArg(7, 1u); // Number of iterations
 
         // create mining buffers
         ETHCL_LOG("Creating mining buffer");
 		m_searchBuffer.clear();
 		//+ 2 cause we use [c_maxSearchResults+1] element to count hashes in case of OpenCL kernel
-        m_searchBuffer.push_back(cl::Buffer(m_context, CL_MEM_WRITE_ONLY, (c_maxSearchResults + 2) * sizeof(uint32_t)));
+        //+3 cause the last for verifying number storage
+        m_searchBuffer.push_back(cl::Buffer(m_context, CL_MEM_WRITE_ONLY, (c_maxSearchResults + 3) * sizeof(uint32_t)));
+
+        //create verify buffer
+        m_verifyBuffer.clear();
+        m_verifyBuffer.push_back(cl::Buffer(m_context, CL_MEM_WRITE_ONLY, (c_verifyCount) * sizeof(uint32_t)));
 
         m_dagKernel.setArg(1, m_light[0]);
         m_dagKernel.setArg(2, m_dag[0]);

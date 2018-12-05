@@ -246,7 +246,8 @@ __kernel void search(
     ulong start_nonce,
     ulong target,
     uint isolate,
-    uint itereations)
+    uint itereations,
+    __global volatile uint* restrict g_verifyIds)
 {
     __global hash128_t const* g_dag = (__global hash128_t const*) _g_dag;
 
@@ -294,6 +295,11 @@ __kernel void search(
         state[22] = (uint2)(0);
         state[23] = (uint2)(0);
         state[24] = (uint2)(0);
+
+	//KILL EVERY FIFTH HASH
+/*	if (state[4].x % 5 == 0) {
+		state[4].x = 0xffffffff - state[4].x;
+	} */
 
         for (volatile int pass = 0; pass < 2; ++pass) {
             KECCAK_PROCESS(state, select(5, 12, pass != 0), select(8, 1, pass != 0), isolate);
@@ -371,10 +377,14 @@ __kernel void search(
 		if (g_output[MAX_OUTPUTS]!=0xffffffff) {
 			atomic_inc(&g_output[MAX_OUTPUTS+1]);
 		}
-
-        if (as_ulong(as_uchar8(state[0]).s76543210) < target) {
+		ulong result = as_ulong(as_uchar8(state[0]).s76543210);
+        if (result < target) {
             uint slot = min(MAX_OUTPUTS - 1u, atomic_inc(&g_output[MAX_OUTPUTS]));
 			g_output[slot] = gid;
+        }
+        if (result < 18446744073709000){
+			uint verifySlot = min(VERIFY_COUNT - 1u, atomic_inc(&g_output[MAX_OUTPUTS+2]));
+			g_verifyIds[verifySlot] = gid;
         }
     }
 }

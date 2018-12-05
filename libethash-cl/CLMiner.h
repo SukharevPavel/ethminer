@@ -86,6 +86,8 @@ private:
 
 	bool init(int epoch);
 
+	void verify(uint32_t verified[], uint shouldBeVerifiedCount, WorkPackage current);
+
 	uint32_t const C_INVALID = 0xffffffff;
 
 	cl::Context m_context;
@@ -97,6 +99,8 @@ private:
 	vector<cl::Buffer> m_light;
 	vector<cl::Buffer> m_header;
 	vector<cl::Buffer> m_searchBuffer;
+	vector<cl::Buffer> m_verifyBuffer;
+	vector<cl::Buffer> m_verifyResultBuffer;
 	unsigned m_globalWorkSize = 0;
 	unsigned m_workgroupSize = 0;
 	unsigned m_dagItems = 0;
