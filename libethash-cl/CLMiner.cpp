@@ -377,6 +377,13 @@ void CLMiner::workLoop()
 
 			// Report hash count
 			addHashCount(m_globalWorkSize);
+			kernelHashCount+=m_globalWorkSize;
+			cllog<<"number of hashes "<<kernelHashCount<<" for time "<<checkTime();
+			if (checkTime() > 600000) {
+				
+				m_queue.finish();
+				break;
+			}
 
 			// Check if we should stop.
 			if (shouldStop())
@@ -704,6 +711,7 @@ bool CLMiner::init(const h256& seed)
 		auto dagTime = std::chrono::duration_cast<std::chrono::milliseconds>(endDAG-startDAG);
 		float gb = (float)dagSize / (1024 * 1024 * 1024);
 		cnote << gb << " GB of DAG data generated in" << dagTime.count() << "ms.";
+		initCounter();
 	}
 	catch (cl::Error const& err)
 	{
