@@ -13,6 +13,8 @@
 
 #include <boost/algorithm/string/predicate.hpp>
 #include <boost/lexical_cast.hpp>
+#include <fstream>
+#include <chrono>
 
 #pragma GCC diagnostic push
 #if __GNUC__ >= 6
@@ -35,6 +37,8 @@
 #ifndef CL_DEVICE_COMPUTE_CAPABILITY_MINOR_NV
 #define CL_DEVICE_COMPUTE_CAPABILITY_MINOR_NV 0x4001
 #endif
+
+using namespace std::chrono;
 
 namespace dev
 {
@@ -76,6 +80,67 @@ private:
 
     unsigned m_dagItems = 0;
     uint64_t m_lastNonce = 0;
+
+    milliseconds initMs;
+	milliseconds lastCycleTime;
+	int curTime;
+	unsigned long hashCount;
+    unsigned long lostHashCount;
+	unsigned long changeBlockCount;
+	unsigned long openclCycleCount = 0;
+	bool wasInvalidHeader = false;
+	unsigned int meanCycleTime;
+	unsigned int cycleCount;
+	unsigned long kernelHashCount;
+
+    void initCounter(){
+        initMs = duration_cast< milliseconds >(
+                    system_clock::now().time_since_epoch());
+		hashCount = 0;
+        lostHashCount = 0;
+		openclCycleCount = 0;
+		changeBlockCount = 0;
+		meanCycleTime = 0;
+		cycleCount = 0;
+		kernelHashCount = 0;
+		lastCycleTime = duration_cast< milliseconds >(steady_clock::duration::zero());
+    }
+
+    int checkTime(){
+        milliseconds curMs = duration_cast< milliseconds >(
+                    system_clock::now().time_since_epoch());
+		curTime = curMs.count() - initMs.count();
+		return curTime;
+    }
+
+    int checkCycleTime(){
+    	if (lastCycleTime.count()) {
+        milliseconds curMs = duration_cast< milliseconds >(
+                    system_clock::now().time_since_epoch());
+		curTime = curMs.count() - lastCycleTime.count();
+		lastCycleTime = curMs;
+		meanCycleTime = (meanCycleTime * cycleCount + curTime) / (cycleCount + 1);
+		cycleCount++;
+	} else {
+			lastCycleTime =  duration_cast< milliseconds >(
+                    system_clock::now().time_since_epoch());
+		}
+		return meanCycleTime;
+
+    }
+
+	int getTime(){
+		return curTime;
+	}
+
+	milliseconds lastMs;
+
+	void printMillis(int num){
+		milliseconds ms = duration_cast< milliseconds >(
+			system_clock::now().time_since_epoch());
+		printf("on line %d for %lu ms\n", num, ms - lastMs);
+		lastMs = ms;
+	}
 
 };
 

@@ -415,10 +415,20 @@ void CLMiner::workLoop()
             // Increase start nonce for following kernel execution.
             startNonce += m_settings.globalWorkSize;
             // Report hash count
-            if (m_settings.noExit)
+            if (m_settings.noExit) {
                 updateHashRate(m_settings.globalWorkSize, 1);
-            else
+                kernelHashCount+=m_settings.globalWorkSize;
+            }
+            else {
                 updateHashRate(m_settings.localWorkSize, results.hashCount);
+                kernelHashCount+=m_settings.localWorkSize * results.hashCount;
+            }
+            cllog<<"number of hashes "<<kernelHashCount<<" for time "<<checkTime();
+			if (checkTime() > 600000) {
+
+				m_queue[0].finish();
+				break;
+			}
         }
 
         if (m_queue.size())
@@ -902,6 +912,7 @@ bool CLMiner::initEpoch_internal()
         cllog << dev::getFormattedMemory((double)m_epochContext.dagSize)
               << " of DAG data generated in "
               << dagTime.count() << " ms.";
+        initCounter();
     }
     catch (cl::Error const& err)
     {
