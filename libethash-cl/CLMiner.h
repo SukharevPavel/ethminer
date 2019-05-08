@@ -61,7 +61,7 @@ protected:
     void kick_miner() override;
 
 private:
-    
+
     void workLoop() override;
 
     vector<cl::Context> m_context;
@@ -91,7 +91,9 @@ private:
 	bool wasInvalidHeader = false;
 	unsigned int meanCycleTime;
 	unsigned int cycleCount;
-	unsigned long kernelHashCount;
+	uint64_t kernelHashCount;
+	vector<cl::Buffer> m_verifyBuffer;
+	vector<cl::Buffer> m_verifyResultBuffer;
 
     void initCounter(){
         initMs = duration_cast< milliseconds >(
@@ -105,6 +107,8 @@ private:
 		kernelHashCount = 0;
 		lastCycleTime = duration_cast< milliseconds >(steady_clock::duration::zero());
     }
+
+    void verify(uint32_t verified[], uint shouldBeVerifiedCount, WorkPackage current);
 
     int checkTime(){
         milliseconds curMs = duration_cast< milliseconds >(

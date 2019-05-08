@@ -248,6 +248,7 @@ struct SearchResults {
     } rslt[MAX_OUTPUTS];
     uint count;
     uint hashCount;
+    uint verifyCount;
     uint abort;
 };
 
@@ -258,7 +259,8 @@ __kernel void search(
     __global ulong8 const* _g_dag,
     uint dag_size,
     ulong start_nonce,
-    ulong target
+    ulong target,
+    __global volatile uint* restrict g_verifyIds
 )
 {
 #ifdef FAST_EXIT
@@ -387,8 +389,8 @@ __kernel void search(
     if (get_local_id(0) == 0)
         atomic_inc(&g_output->hashCount);
 #endif
-
-    if (as_ulong(as_uchar8(state[0]).s76543210) <= target) {
+    ulong result = as_ulong(as_uchar8(state[0]).s76543210);
+    if (result <= target) {
 #ifdef FAST_EXIT
         atomic_inc(&g_output->abort);
 #endif
@@ -402,6 +404,10 @@ __kernel void search(
         g_output->rslt[slot].mix[5] = mixhash[2].s1;
         g_output->rslt[slot].mix[6] = mixhash[3].s0;
         g_output->rslt[slot].mix[7] = mixhash[3].s1;
+    }
+    if (result < VERIFY_BORDER){
+        uint verifySlot = min(VERIFY_COUNT - 1u, atomic_inc(&g_output->verifyCount));
+        g_verifyIds[verifySlot] = gid;
     }
 }
 

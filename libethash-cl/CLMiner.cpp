@@ -7,6 +7,8 @@
 
 #include <libethcore/Farm.h>
 #include <ethash/ethash.hpp>
+#include <vector>
+#include <thread>
 
 #include "CLMiner.h"
 #include "ethash.h"
@@ -23,6 +25,8 @@ namespace eth
 // unless you are prepared to make the neccessary adjustments
 // to the assembly code for the binary kernels.
 const size_t c_maxSearchResults = 15;
+constexpr size_t c_verifyCount = 25500;
+constexpr uint64_t VERIFY_BORDER = 184467440737090;
 
 struct CLChannel : public LogChannel
 {
@@ -210,6 +214,13 @@ void addDefinition(string& _source, char const* _id, unsigned _value)
     _source.insert(_source.begin(), buf, buf + strlen(buf));
 }
 
+void addDefinitionU64(string& _source, char const* _id, uint64_t _value)
+{
+    char buf[256];
+    sprintf(buf, "#define %s %luUL\n", _id, _value);
+    _source.insert(_source.begin(), buf, buf + strlen(buf));
+}
+
 std::vector<cl::Platform> getPlatforms()
 {
     vector<cl::Platform> platforms;
@@ -253,6 +264,14 @@ std::vector<cl::Device> getDevices(
 }  // namespace eth
 }  // namespace dev
 
+uint64_t correct = 0;
+uint64_t wrong = 0;
+uint64_t skipped = 0;
+bool isWorking = false;
+WorkPackage verifiedPackage;
+WorkPackage currentWorkingPackage;
+std::vector<uint32_t> verifiedVector;
+
 CLMiner::CLMiner(unsigned _index, CLSettings _settings, DeviceDescriptor& _device)
   : Miner("cl-", _index), m_settings(_settings)
 {
@@ -283,13 +302,16 @@ struct SearchResults
     } rslt[c_maxSearchResults];
     uint32_t count;
     uint32_t hashCount;
+    uint32_t verifyCount;
     uint32_t abort;
 };
 
 void CLMiner::workLoop()
 {
+
+    uint32_t const c_zero = 0;
     // Memory for zero-ing buffers. Cannot be static or const because crashes on macOS.
-    uint32_t zerox3[3] = {0, 0, 0};
+    uint32_t zerox4[4] = {0, 0, 0, 0};
 
     uint64_t startNonce = 0;
 
@@ -313,7 +335,7 @@ void CLMiner::workLoop()
                 // no need to read the abort flag.
                 m_queue[0].enqueueReadBuffer(m_searchBuffer[0], CL_TRUE,
                     offsetof(SearchResults, count),
-                    (m_settings.noExit ? 1 : 2) * sizeof(results.count), (void*)&results.count);
+                    (m_settings.noExit ? 2 : 3) * sizeof(results.count), (void*)&results.count);
                 if (results.count)
                 {
                     m_queue[0].enqueueReadBuffer(m_searchBuffer[0], CL_TRUE, 0,
@@ -321,15 +343,17 @@ void CLMiner::workLoop()
                     // Reset search buffer if any solution found.
                     if (m_settings.noExit)
                         m_queue[0].enqueueWriteBuffer(m_searchBuffer[0], CL_FALSE,
-                            offsetof(SearchResults, count), sizeof(results.count), zerox3);
+                            offsetof(SearchResults, count), sizeof(results.count), zerox4);
                 }
-                // clean the solution count, hash count, and abort flag
+                // clean the solution count, hash count, verify count and abort flag
                 if (!m_settings.noExit)
                     m_queue[0].enqueueWriteBuffer(m_searchBuffer[0], CL_FALSE,
-                        offsetof(SearchResults, count), sizeof(zerox3), zerox3);
+                        offsetof(SearchResults, count), sizeof(zerox4), zerox4);
             }
-            else
+            else {
                 results.count = 0;
+                results.verifyCount = 0;
+              }
 
             // Wait for work or 3 seconds (whichever the first)
             const WorkPackage w = work();
@@ -340,6 +364,14 @@ void CLMiner::workLoop()
                 boost::mutex::scoped_lock l(x_work);
                 m_new_work_signal.timed_wait(l, timeout);
                 continue;
+            }
+
+            if (results.verifyCount){
+                uint32_t verified[results.verifyCount];
+
+                m_queue[0].enqueueReadBuffer(m_verifyBuffer[0], CL_TRUE, 0, sizeof(verified), &verified);
+                verify(verified, results.verifyCount,currentWorkingPackage);
+
             }
 
             if (current.header != w.header)
@@ -367,13 +399,16 @@ void CLMiner::workLoop()
                 // zero the result count
                 m_queue[0].enqueueWriteBuffer(m_searchBuffer[0], CL_FALSE,
                     offsetof(SearchResults, count),
-                    m_settings.noExit ? sizeof(zerox3[0]) : sizeof(zerox3), zerox3);
+                    m_settings.noExit ? sizeof(zerox4[0]) : sizeof(zerox4), zerox4);
+
+                m_queue[0].enqueueFillBuffer(m_verifyBuffer[0], c_zero,0, (c_verifyCount) * sizeof(uint32_t));
 
                 m_searchKernel.setArg(0, m_searchBuffer[0]);  // Supply output buffer to kernel.
                 m_searchKernel.setArg(1, m_header[0]);        // Supply header buffer to kernel.
                 m_searchKernel.setArg(2, m_dag[0]);           // Supply DAG buffer to kernel.
                 m_searchKernel.setArg(3, m_dagItems);
                 m_searchKernel.setArg(5, target);
+                m_searchKernel.setArg(6, m_verifyBuffer[0]);
 
 #ifdef DEV_BUILD
                 if (g_logOptions & LOG_SWITCH)
@@ -423,12 +458,14 @@ void CLMiner::workLoop()
                 updateHashRate(m_settings.localWorkSize, results.hashCount);
                 kernelHashCount+=m_settings.localWorkSize * results.hashCount;
             }
-            cllog<<"number of hashes "<<kernelHashCount<<" for time "<<checkTime();
-			if (checkTime() > 600000) {
+            cllog<<"number of hashes "<<kernelHashCount<<" for time "<<checkTime()<< "; correct:"<<correct<<"; wrong:"<<wrong<<"; skipped:"<<skipped;
+            currentWorkingPackage = WorkPackage(current);
+      			if (checkTime() > 600000) {
 
-				m_queue[0].finish();
-				break;
-			}
+      				m_queue[0].finish();
+      				break;
+      			}
+
         }
 
         if (m_queue.size())
@@ -441,8 +478,8 @@ void CLMiner::workLoop()
     }
 }
 
-void CLMiner::kick_miner()
-{
+void CLMiner::kick_miner() {
+
     // Memory for abort Cannot be static because crashes on macOS.
     const uint32_t one = 1;
     if (!m_settings.noExit && !m_abortqueue.empty())
@@ -450,9 +487,10 @@ void CLMiner::kick_miner()
             m_searchBuffer[0], CL_TRUE, offsetof(SearchResults, abort), sizeof(one), &one);
 
     m_new_work_signal.notify_one();
+
 }
 
-void CLMiner::enumDevices(std::map<string, DeviceDescriptor>& _DevicesCollection) 
+void CLMiner::enumDevices(std::map<string, DeviceDescriptor>& _DevicesCollection)
 {
     // Load available platforms
     vector<cl::Platform> platforms = getPlatforms();
@@ -470,7 +508,7 @@ void CLMiner::enumDevices(std::map<string, DeviceDescriptor>& _DevicesCollection
             platformType = ClPlatformTypeEnum::Clover;
         else if (platformName == "NVIDIA CUDA")
             platformType = ClPlatformTypeEnum::Nvidia;
-        else 
+        else
         {
             std::cerr << "Unrecognized platform " << platformName << std::endl;
             continue;
@@ -595,7 +633,6 @@ void CLMiner::enumDevices(std::map<string, DeviceDescriptor>& _DevicesCollection
 
 bool CLMiner::initDevice()
 {
-
     // LookUp device
     // Load available platforms
     vector<cl::Platform> platforms = getPlatforms();
@@ -680,9 +717,53 @@ bool CLMiner::initDevice()
               << m_settings.globalWorkSize / m_settings.localWorkSize;
     }
 
-
     return true;
 
+}
+
+void verifyAsync(std::vector<uint32_t> verified, WorkPackage verifiedPackage){
+	isWorking = true;
+	        for (uint32_t i = 0; i < verified.size(); i++){
+	            Result r = EthashAux::eval(verifiedPackage.epoch, verifiedPackage.header, verifiedPackage.startNonce + verified[i]);
+	            if ((unsigned long)(u64)((u256)r.value >> 192) <= VERIFY_BORDER) {
+	                correct++;
+	                 //cllog << "correct result value = "<<(unsigned long)(u64)((u256)r.value >> 192)<<" for gid = "<<verified[i];
+	            }else {
+	                wrong++;
+	                  //cwarn << "wrong result value = "<<(unsigned long)(u64)((u256)r.value >> 192)<<" for gid = "<<verified[i];
+	            }
+	        }
+	        isWorking = false;
+}
+
+void emptyFunction(){
+	isWorking = true;
+	        for (uint32_t i = 0; i < verifiedVector.size(); i++){
+	            Result r = EthashAux::eval(verifiedPackage.epoch, verifiedPackage.header, verifiedPackage.startNonce + verifiedVector[i]);
+	            if ((unsigned long)(u64)((u256)r.value >> 192) <= VERIFY_BORDER) {
+	                correct++;
+	               //  cllog << "correct result value = "<<(unsigned long)(u64)((u256)r.value >> 192)<<" for gid = "<<verifiedVector[i];
+	            }else {
+	                wrong++;
+	               //   cwarn << "wrong result value = "<<(unsigned long)(u64)((u256)r.value >> 192)<<" for gid = "<<verifiedVector[i];
+	            }
+	        }
+	        isWorking = false;
+
+	    }
+
+void CLMiner::verify(uint32_t verified[], uint shouldBeVerifiedCount, WorkPackage package) {
+	if(!isWorking) {
+	//	cllog << "start thread";
+		verifiedVector = std::vector<uint32_t>(verified, verified + shouldBeVerifiedCount);
+		verifiedPackage = WorkPackage(package);
+	//	cllog<<"was "<<shouldBeVerifiedCount<<" and now it is "<<verifiedVector.size();
+		new thread([&]() {
+			emptyFunction();
+		});
+	} else {
+		skipped += shouldBeVerifiedCount;
+	}
 }
 
 bool CLMiner::initEpoch_internal()
@@ -749,6 +830,8 @@ bool CLMiner::initEpoch_internal()
         addDefinition(code, "MAX_OUTPUTS", c_maxSearchResults);
         addDefinition(code, "PLATFORM", m_deviceDescriptor.clPlatformId);
         addDefinition(code, "COMPUTE", computeCapability);
+        addDefinition(code, "VERIFY_COUNT", c_verifyCount);
+        addDefinitionU64(code, "VERIFY_BORDER", VERIFY_BORDER);
 
         if (m_deviceDescriptor.clPlatformType == ClPlatformTypeEnum::Clover)
             addDefinition(code, "LEGACY", 1);
@@ -882,6 +965,9 @@ bool CLMiner::initEpoch_internal()
         ETHCL_LOG("Creating mining buffer");
         m_searchBuffer.clear();
         m_searchBuffer.emplace_back(m_context[0], CL_MEM_WRITE_ONLY, sizeof(SearchResults));
+
+        m_verifyBuffer.clear();
+        m_verifyBuffer.push_back(cl::Buffer(m_context[0], CL_MEM_WRITE_ONLY, (c_verifyCount) * sizeof(uint32_t)));
 
         m_dagKernel.setArg(1, m_light[0]);
         m_dagKernel.setArg(2, m_dag[0]);
