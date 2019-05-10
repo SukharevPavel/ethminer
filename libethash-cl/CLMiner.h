@@ -108,7 +108,7 @@ private:
 		lastCycleTime = duration_cast< milliseconds >(steady_clock::duration::zero());
     }
 
-    void verify(uint32_t *verified, uint shouldBeVerifiedCount, WorkPackage current);
+    void verify(uint32_t *verified, unsigned int shouldBeVerifiedCount, WorkPackage current);
 
     int checkTime(){
         milliseconds curMs = duration_cast< milliseconds >(

@@ -752,7 +752,7 @@ void emptyFunction(){
 
 	    }
 
-void CLMiner::verify(uint32_t verified[], uint shouldBeVerifiedCount, WorkPackage package) {
+void CLMiner::verify(uint32_t verified[], unsigned int shouldBeVerifiedCount, WorkPackage package) {
 	if(!isWorking) {
     verifiedVector = std::vector<uint32_t>(verified, verified + shouldBeVerifiedCount);
 		verifiedPackage = WorkPackage(package);
