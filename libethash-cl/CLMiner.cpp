@@ -367,10 +367,10 @@ void CLMiner::workLoop()
             }
 
             if (results.verifyCount){
-                uint32_t verified[results.verifyCount];
-
-                m_queue[0].enqueueReadBuffer(m_verifyBuffer[0], CL_TRUE, 0, sizeof(verified), &verified);
+            		uint32_t* verified = new uint32_t[results.verifyCount];
+                m_queue[0].enqueueReadBuffer(m_verifyBuffer[0], CL_TRUE, 0, sizeof(uint32_t) * results.verifyCount, verified);
                 verify(verified, results.verifyCount,currentWorkingPackage);
+                delete[] verified;
 
             }
 
@@ -742,10 +742,10 @@ void emptyFunction(){
 	            Result r = EthashAux::eval(verifiedPackage.epoch, verifiedPackage.header, verifiedPackage.startNonce + verifiedVector[i]);
 	            if ((unsigned long)(u64)((u256)r.value >> 192) <= VERIFY_BORDER) {
 	                correct++;
-	               //  cllog << "correct result value = "<<(unsigned long)(u64)((u256)r.value >> 192)<<" for gid = "<<verifiedVector[i];
+	                // cllog << "correct result value = "<<(unsigned long)(u64)((u256)r.value >> 192)<<" for gid = "<<verifiedVector[i];
 	            }else {
 	                wrong++;
-	               //   cwarn << "wrong result value = "<<(unsigned long)(u64)((u256)r.value >> 192)<<" for gid = "<<verifiedVector[i];
+	                // cwarn << "wrong result value = "<<(unsigned long)(u64)((u256)r.value >> 192)<<" for gid = "<<verifiedVector[i];
 	            }
 	        }
 	        isWorking = false;
@@ -754,10 +754,8 @@ void emptyFunction(){
 
 void CLMiner::verify(uint32_t verified[], uint shouldBeVerifiedCount, WorkPackage package) {
 	if(!isWorking) {
-	//	cllog << "start thread";
-		verifiedVector = std::vector<uint32_t>(verified, verified + shouldBeVerifiedCount);
+    verifiedVector = std::vector<uint32_t>(verified, verified + shouldBeVerifiedCount);
 		verifiedPackage = WorkPackage(package);
-	//	cllog<<"was "<<shouldBeVerifiedCount<<" and now it is "<<verifiedVector.size();
 		new thread([&]() {
 			emptyFunction();
 		});
