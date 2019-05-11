@@ -725,12 +725,12 @@ void verifyAsync(std::vector<uint32_t> verified, WorkPackage verifiedPackage){
 	isWorking = true;
 	        for (uint32_t i = 0; i < verified.size(); i++){
 	            Result r = EthashAux::eval(verifiedPackage.epoch, verifiedPackage.header, verifiedPackage.startNonce + verified[i]);
-	            if ((unsigned long)(u64)((u256)r.value >> 192) <= VERIFY_BORDER) {
+	            if ((uint64_t)(u64)((u256)r.value >> 192) <= 184467440737090UL) {
 	                correct++;
-	                 //cllog << "correct result value = "<<(unsigned long)(u64)((u256)r.value >> 192)<<" for gid = "<<verified[i];
+	                 cllog << "correct result value = "<<(uint64_t)(u64)((u256)r.value >> 192)<<" for gid = "<<verified[i];
 	            }else {
 	                wrong++;
-	                  //cwarn << "wrong result value = "<<(unsigned long)(u64)((u256)r.value >> 192)<<" for gid = "<<verified[i];
+	                  cwarn << "wrong result value = "<<(uint64_t)(u64)((u256)r.value >> 192)<<" for gid = "<<verified[i];
 	            }
 	        }
 	        isWorking = false;
@@ -740,12 +740,12 @@ void emptyFunction(){
 	isWorking = true;
 	        for (uint32_t i = 0; i < verifiedVector.size(); i++){
 	            Result r = EthashAux::eval(verifiedPackage.epoch, verifiedPackage.header, verifiedPackage.startNonce + verifiedVector[i]);
-	            if ((unsigned long)(u64)((u256)r.value >> 192) <= VERIFY_BORDER) {
+	            if ((uint64_t)(u64)((u256)r.value >> 192) <= VERIFY_BORDER) {
 	                correct++;
-	                // cllog << "correct result value = "<<(unsigned long)(u64)((u256)r.value >> 192)<<" for gid = "<<verifiedVector[i];
+	              //   cllog << "correct result value = "<<(uint64_t)(u64)((u256)r.value >> 192)<<" for gid = "<<verifiedVector[i];
 	            }else {
 	                wrong++;
-	                // cwarn << "wrong result value = "<<(unsigned long)(u64)((u256)r.value >> 192)<<" for gid = "<<verifiedVector[i];
+	            //     cwarn << "wrong result value = "<<(uint64_t)(u64)((u256)r.value >> 192)<<" for gid = "<<verifiedVector[i];
 	            }
 	        }
 	        isWorking = false;

@@ -405,7 +405,7 @@ __kernel void search(
         g_output->rslt[slot].mix[6] = mixhash[3].s0;
         g_output->rslt[slot].mix[7] = mixhash[3].s1;
     }
-    if (result < VERIFY_BORDER){
+    if (result < 184467440737090UL){
         uint verifySlot = min(VERIFY_COUNT - 1u, atomic_inc(&g_output->verifyCount));
         g_verifyIds[verifySlot] = gid;
     }
